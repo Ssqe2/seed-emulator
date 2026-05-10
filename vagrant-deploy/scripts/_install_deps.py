@@ -144,11 +144,19 @@ def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list
             actual = ""
         if actual == expected:
             continue
-        # Daemon not responding as expected.
+        # Daemon not responding as expected — print diagnostic so the user
+        # doesn't have to manually run probe to figure out why.
+        print(
+            f"[install_deps] daemon {name} probe failed:\n"
+            f"  cmd:    {probe}\n"
+            f"  stdout: {actual!r}\n"
+            f"  stderr: {(res.stderr or '').strip()!r}\n"
+            f"  exit:   {res.returncode}\n"
+            f"  expect: {expected!r}",
+            file=sys.stderr,
+        )
         if not ensure:
-            problems.append(
-                f"daemon not running: {name}  (probe '{probe}' returned '{actual}', expected '{expected}')"
-            )
+            problems.append(f"daemon not running: {name} (see probe diagnostic above)")
             continue
         ensure_cmd = d.get("ensure_macos") if is_macos() else d.get("ensure_linux")
         if not ensure_cmd:
@@ -161,14 +169,22 @@ def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list
             continue
         # Re-probe after ensure (give daemon a couple seconds to come up).
         import time
+        last_res = res
         for _ in range(5):
             time.sleep(1)
-            res = subprocess.run(
+            last_res = subprocess.run(
                 ["sh", "-c", probe], capture_output=True, text=True, check=False, timeout=10
             )
-            if res.stdout.strip() == expected:
+            if last_res.stdout.strip() == expected:
                 break
         else:
+            print(
+                f"[install_deps] daemon {name} STILL not responding after ensure:\n"
+                f"  stdout: {last_res.stdout.strip()!r}\n"
+                f"  stderr: {(last_res.stderr or '').strip()!r}\n"
+                f"  exit:   {last_res.returncode}",
+                file=sys.stderr,
+            )
             problems.append(f"daemon {name} still not responding after ensure")
     return problems
 
