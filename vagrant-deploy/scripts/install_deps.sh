@@ -36,11 +36,23 @@ DEPS_FILE="${REPO_ROOT}/configs/deps.yaml"
 die() { echo "[install_deps] ERROR: $*" >&2; exit 1; }
 
 [[ -f "${DEPS_FILE}" ]] || die "deps.yaml not found at ${DEPS_FILE}"
-command -v python3 &>/dev/null || die "python3 is required.  sudo apt install python3 python3-yaml"
+
+# Choose the Python interpreter for installing SEED's pinned requirements.
+# On macOS, prefer Apple's bundled /usr/bin/python3 (3.9) over brew's python
+# 3.14: many of SEED's pinned packages (rpds-py, eth-*, web3) only ship
+# wheels for cpython 3.9-3.12, and on 3.14 pip falls back to source build
+# which then needs rustup just for one package. Apple python 3.9 is stable
+# and has working wheels for all of SEED's deps.
+if [ "$(uname)" = "Darwin" ] && [ -x /usr/bin/python3 ]; then
+  PYTHON="/usr/bin/python3"
+else
+  PYTHON="$(command -v python3 || true)"
+fi
+[[ -x "${PYTHON}" ]] || die "python3 is required.  sudo apt install python3 python3-yaml"
 
 # Bootstrap: install_deps.sh itself depends on PyYAML to read deps.yaml.
-if ! python3 -c "import yaml" 2>/dev/null; then
-  die "Python module 'yaml' missing.  pip install --user pyyaml  (or: sudo apt install python3-yaml)"
+if ! "${PYTHON}" -c "import yaml" 2>/dev/null; then
+  die "Python module 'yaml' missing.  ${PYTHON} -m pip install --user pyyaml  (or: sudo apt install python3-yaml)"
 fi
 
 ACTION="${1:-check}"
@@ -50,4 +62,4 @@ case "${ACTION}" in
   *) die "Unknown action: ${ACTION} (try check|install)" ;;
 esac
 
-DEPS_FILE="${DEPS_FILE}" exec python3 "${SCRIPT_DIR}/_install_deps.py" "${ACTION}"
+DEPS_FILE="${DEPS_FILE}" exec "${PYTHON}" "${SCRIPT_DIR}/_install_deps.py" "${ACTION}"
