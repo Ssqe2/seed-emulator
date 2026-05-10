@@ -12,6 +12,10 @@ python_packages:
   # ansible 2.10.x uses jinja2's `environmentfilter`, removed in 3.1+.
   # Pin to < 3.1 until we upgrade the playbook stack to ansible-core >= 2.13.
   - "jinja2<3.1"
+  # SEED upstream seedemu imports `requests` at module load (eg
+  # AutonomousSystem.py). Linux distro pythons usually ship it; macOS
+  # brew python doesn't.
+  - requests
 
 cli_required:
   - vagrant
