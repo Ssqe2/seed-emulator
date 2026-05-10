@@ -97,7 +97,13 @@ generate_inventory() {
 
 run_playbook() {
   log "Running playbook: ${PLAYBOOK}"
+  # Force a locale that ansible (and brew-installed Python) accepts. Without
+  # this, macOS SSH sessions inherit a locale like 'UTF-8' or empty which
+  # makes ansible-playbook abort with "could not initialize the preferred
+  # locale: unsupported locale setting".
   ANSIBLE_CONFIG="${SCRIPT_DIR}/ansible/ansible.cfg" \
+  LC_ALL="${LC_ALL:-en_US.UTF-8}" \
+  LANG="${LANG:-en_US.UTF-8}" \
   ansible-playbook \
     -i "${INVENTORY}" \
     --extra-vars "output_kubeconfig=${KUBECONFIG_OUT}" \
