@@ -66,7 +66,10 @@ provider_dependencies:
       - name: vagrant-vmware-utility
         probe: "curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:9922/status"
         expected: "200"
-        ensure_macos: "sudo launchctl load /Library/LaunchDaemons/com.vagrant.vagrant-vmware-utility.plist"
+        # macOS Sequoia/Sonoma deprecated `launchctl load`; use `bootstrap`
+        # (idempotent, errors ignored if already bootstrapped) + `kickstart`
+        # to force the service to actually start. Both need root.
+        ensure_macos: "sudo launchctl bootstrap system /Library/LaunchDaemons/com.vagrant.vagrant-vmware-utility.plist 2>/dev/null; sudo launchctl kickstart -k system/com.vagrant.vagrant-vmware-utility"
         ensure_linux: "sudo systemctl start vagrant-vmware-utility"
   virtualbox:
     vagrant_plugins: []      # provider built into vagrant
