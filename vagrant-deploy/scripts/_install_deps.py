@@ -80,6 +80,41 @@ def is_macos() -> bool:
     return sys.platform == "darwin"
 
 
+def check_mac_bash(ensure: bool = False) -> list[str]:
+    """SEED upstream scripts use bash 4+ parameter transformations (eg
+    ${VAR@Q}) that fail on macOS's GPL-v2-locked /bin/bash 3.2. Require
+    the brew-installed bash to be on PATH and >= 4.
+
+    When ensure=True we'll try `brew install bash` automatically.
+    """
+    if not is_macos():
+        return []
+    problems: list[str] = []
+    brew_bash = "/opt/homebrew/bin/bash"
+    if not Path(brew_bash).is_file():
+        if ensure and shutil.which("brew"):
+            print("[install_deps] installing brew bash (required for SEED upstream scripts)", file=sys.stderr)
+            ret = subprocess.run(["brew", "install", "bash"], check=False)
+            if ret.returncode != 0 or not Path(brew_bash).is_file():
+                problems.append("brew install bash failed; please install manually")
+                return problems
+        else:
+            problems.append(
+                f"brew bash not found at {brew_bash} — required because macOS /bin/bash 3.2 "
+                "doesn't support bash 4+ syntax used by SEED upstream scripts. Install: brew install bash"
+            )
+            return problems
+    # Verify version
+    try:
+        out = subprocess.run([brew_bash, "--version"], capture_output=True, text=True, check=False).stdout
+        major = int(out.split("version ")[1].split(".")[0])
+        if major < 4:
+            problems.append(f"brew bash version {major} < 4 (need >= 4 for SEED upstream): brew upgrade bash")
+    except Exception:
+        pass
+    return problems
+
+
 def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list[str]:
     """Validate per-provider dependencies (plugins, files, apps, daemons).
     When ensure=True, attempt sudo launchctl/systemctl to start any
@@ -208,6 +243,12 @@ def action_check(deps: dict, deps_file: Path) -> int:
     if cli_missing:
         print_cli_missing(cli_missing, deps.get("install_hints") or {})
         rc = 1
+    mac_bash_problems = check_mac_bash(ensure=False)
+    if mac_bash_problems:
+        print("[install_deps] macOS bash issues:", file=sys.stderr)
+        for p in mac_bash_problems:
+            print(f"  - {p}", file=sys.stderr)
+        rc = 1
     provider = get_active_provider(deps_file)
     if provider:
         prov_problems = check_provider_deps(deps, provider, ensure=False)
@@ -252,6 +293,12 @@ def action_install(deps: dict, deps_file: Path) -> int:
             "[install_deps] CLI tools are NOT auto-installed; install them then re-run check.",
             file=sys.stderr,
         )
+        return 1
+    mac_bash_problems = check_mac_bash(ensure=True)
+    if mac_bash_problems:
+        print("[install_deps] macOS bash issues:", file=sys.stderr)
+        for p in mac_bash_problems:
+            print(f"  - {p}", file=sys.stderr)
         return 1
     provider = get_active_provider(deps_file)
     if provider:
