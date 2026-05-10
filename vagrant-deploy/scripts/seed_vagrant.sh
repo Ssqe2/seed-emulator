@@ -143,7 +143,17 @@ with open(config_path) as f:
 cfg = normalize_cluster(raw)
 
 provider = cfg.get("provider", "virtualbox")
-box = cfg.get("box", "ubuntu/jammy64")
+# Multi-arch box selection. ARM64 hosts (Apple Silicon Mac, ARM Linux)
+# need an arm64 box because VMware Fusion 13+ on Apple Silicon cannot
+# run x86_64 guests. Fall back to the default `box` if no arm64 variant
+# is declared or if we're on x86.
+import platform
+_arch = platform.machine().lower()
+if _arch in ("arm64", "aarch64") and cfg.get("box_arm64"):
+    box = cfg["box_arm64"]
+    print(f"[seed_vagrant] host arch={_arch}, using box_arm64={box}", flush=True)
+else:
+    box = cfg.get("box", "ubuntu/jammy64")
 network_type = cfg.get("network", {}).get("type", "private_network")
 nested_virt = bool(cfg.get("nested_virt", False))
 nodes = cfg.get("nodes", [])

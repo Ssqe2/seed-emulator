@@ -3,7 +3,15 @@
 
 provider: vmware_desktop
 
+# Box selection per host architecture. seed_vagrant.sh resolves at generate
+# time: if `uname -m` matches one of the keys below, that box is used;
+# otherwise `box` is the default.
+#   x86_64 / amd64 host  → `box`
+#   arm64 / aarch64 host → `box_arm64`
+# Apple Silicon Macs (M1+) need an ARM box because VMware Fusion 13+ on
+# arm64 cannot run x86_64 guests.
 box: generic/ubuntu2204
+box_arm64: gyptazy/ubuntu22.04-arm64
 
 network:
   type: private_network
