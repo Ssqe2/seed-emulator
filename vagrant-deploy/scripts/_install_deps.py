@@ -303,19 +303,20 @@ def install_seed_requirements(deps_file: Path) -> int:
         sys.stderr.write(ret.stderr or "")
     if ret.returncode != 0:
         return ret.returncode
-    # Force-upgrade a few packages whose SEED-pinned versions break on
-    # newer Python (3.12+). E.g. urllib3==1.25.11 references
-    # urllib3.packages.six.moves which was removed; six was unbundled in
-    # urllib3 1.26. Upgrade to a version that works with 3.12.
-    overrides = ["urllib3>=1.26,<3", "requests>=2.32"]
-    print(f"[install_deps] pip install --upgrade {' '.join(overrides)} (override stale pins)", file=sys.stderr)
-    upg = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "--upgrade", *overrides]
-    ret2 = subprocess.run(upg, check=False, capture_output=True, text=True)
-    if ret2.returncode != 0 and "externally-managed-environment" in (ret2.stderr or ""):
-        ret2 = subprocess.run(upg + ["--break-system-packages"], check=False)
-    elif ret2.returncode != 0:
-        sys.stderr.write(ret2.stderr or "")
-    return ret2.returncode
+    # Now apply our own framework requirements (vagrant-deploy/configs/
+    # requirements.txt). Listed AFTER SEED so newer pins (eg urllib3>=1.26
+    # vs SEED's 1.25.11 which is broken on Python 3.12) win.
+    own = deps_file.parent / "requirements.txt"
+    if own.is_file():
+        print(f"[install_deps] pip install -r {own} (framework deps + overrides)", file=sys.stderr)
+        upg = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "--upgrade", "-r", str(own)]
+        ret2 = subprocess.run(upg, check=False, capture_output=True, text=True)
+        if ret2.returncode != 0 and "externally-managed-environment" in (ret2.stderr or ""):
+            ret2 = subprocess.run(upg + ["--break-system-packages"], check=False)
+        elif ret2.returncode != 0:
+            sys.stderr.write(ret2.stderr or "")
+        return ret2.returncode
+    return 0
 
 
 def action_install(deps: dict, deps_file: Path) -> int:

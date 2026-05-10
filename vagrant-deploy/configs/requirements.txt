@@ -1,0 +1,20 @@
+# vagrant-deploy 框架所需 Python 包(包括 SEED 上游传染过来的运行时依赖)。
+#
+# install_deps.sh install 模式跑:
+#   pip install -r ../../requirements.txt   # SEED 上游 pinned set
+#   pip install -r configs/requirements.txt # 我们的 override + 框架专属
+#
+# 顺序很重要:第二个文件可以覆盖上游的 pin。我们这里只列两类:
+#   1. 框架自身需要,SEED 上游不依赖的(pyyaml / jinja2 给 ansible)
+#   2. SEED 上游 pin 但跟新 Python 不兼容的 — 用 >= 强制升级版本
+
+# --- 框架自身依赖 ---
+pyyaml
+"jinja2<3.1"   # ansible 2.10 需要 environmentfilter,jinja2 3.1+ 删了
+
+# --- 覆盖 SEED 上游过老的 pin ---
+# urllib3==1.25.11 (SEED pin) 在 Python 3.12+ 缺 urllib3.packages.six.moves
+# 升级到不再依赖内嵌 six 的版本
+"urllib3>=1.26,<3"
+# requests 一起升,匹配新 urllib3
+"requests>=2.32"
