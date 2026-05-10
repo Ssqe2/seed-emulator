@@ -258,8 +258,27 @@ action_up() {
 
   generate_vagrantfile
 
-  log "Starting VMs with provider: ${provider}"
+  # Box-drift detection: if .vagrant/machines/ caches a VM built from a
+  # different box than the freshly generated Vagrantfile asks for (eg arch
+  # switched x86 → arm64, or box upgraded), the cached VM image won't boot
+  # ("requires X86 architecture, incompatible with Arm host" etc). Destroy
+  # the old VMs so vagrant up rebuilds from the new box.
   cd "${REPO_ROOT}"
+  local expected_box cached_box machine_dir
+  expected_box="$(awk -F'"' '/^[[:space:]]*config\.vm\.box[[:space:]]*=/ {print $2; exit}' Vagrantfile)"
+  if [[ -n "${expected_box}" && -d .vagrant/machines ]]; then
+    for machine_dir in .vagrant/machines/*/*/; do
+      [[ -f "${machine_dir}box_meta" ]] || continue
+      cached_box="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("name",""))' "${machine_dir}box_meta" 2>/dev/null || true)"
+      if [[ -n "${cached_box}" && "${cached_box}" != "${expected_box}" ]]; then
+        log "box drift: cached='${cached_box}' wanted='${expected_box}' — destroying old VMs"
+        vagrant destroy -f 2>&1 | tail -3 || true
+        break
+      fi
+    done
+  fi
+
+  log "Starting VMs with provider: ${provider}"
   vagrant up --provider="${provider}"
 
   # Export SSH config + fix WSL key perms FIRST. We need this for the verify
