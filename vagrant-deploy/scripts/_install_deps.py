@@ -301,7 +301,21 @@ def install_seed_requirements(deps_file: Path) -> int:
         ret = subprocess.run(base + ["--break-system-packages"], check=False)
     elif ret.returncode != 0:
         sys.stderr.write(ret.stderr or "")
-    return ret.returncode
+    if ret.returncode != 0:
+        return ret.returncode
+    # Force-upgrade a few packages whose SEED-pinned versions break on
+    # newer Python (3.12+). E.g. urllib3==1.25.11 references
+    # urllib3.packages.six.moves which was removed; six was unbundled in
+    # urllib3 1.26. Upgrade to a version that works with 3.12.
+    overrides = ["urllib3>=1.26,<3", "requests>=2.32"]
+    print(f"[install_deps] pip install --upgrade {' '.join(overrides)} (override stale pins)", file=sys.stderr)
+    upg = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "--upgrade", *overrides]
+    ret2 = subprocess.run(upg, check=False, capture_output=True, text=True)
+    if ret2.returncode != 0 and "externally-managed-environment" in (ret2.stderr or ""):
+        ret2 = subprocess.run(upg + ["--break-system-packages"], check=False)
+    elif ret2.returncode != 0:
+        sys.stderr.write(ret2.stderr or "")
+    return ret2.returncode
 
 
 def action_install(deps: dict, deps_file: Path) -> int:
