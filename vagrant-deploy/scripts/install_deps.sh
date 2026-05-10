@@ -38,13 +38,22 @@ die() { echo "[install_deps] ERROR: $*" >&2; exit 1; }
 [[ -f "${DEPS_FILE}" ]] || die "deps.yaml not found at ${DEPS_FILE}"
 
 # Choose the Python interpreter for installing SEED's pinned requirements.
-# On macOS, prefer Apple's bundled /usr/bin/python3 (3.9) over brew's python
-# 3.14: many of SEED's pinned packages (rpds-py, eth-*, web3) only ship
-# wheels for cpython 3.9-3.12, and on 3.14 pip falls back to source build
-# which then needs rustup just for one package. Apple python 3.9 is stable
-# and has working wheels for all of SEED's deps.
-if [ "$(uname)" = "Darwin" ] && [ -x /usr/bin/python3 ]; then
-  PYTHON="/usr/bin/python3"
+# Hard constraints on macOS:
+#   - SEED upstream uses `match` (Python 3.10+) — rules out Apple's /usr/bin/python3 (3.9)
+#   - SEED's pinned reqs (rpds-py, eth-*, web3) only ship wheels for 3.10-3.13
+#     — rules out brew's default `python3` (currently 3.14)
+# Sweet spot is brew python@3.12. Auto-install if missing.
+if [ "$(uname)" = "Darwin" ]; then
+  PYTHON="/opt/homebrew/opt/python@3.12/bin/python3.12"
+  if [ ! -x "${PYTHON}" ]; then
+    if command -v brew &>/dev/null; then
+      echo "[install_deps] installing brew python@3.12 (need 3.10-3.13 for SEED)" >&2
+      HOMEBREW_BOTTLE_DOMAIN="${HOMEBREW_BOTTLE_DOMAIN:-https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles}" \
+        brew install python@3.12 || die "brew install python@3.12 failed"
+    else
+      die "Need brew python@3.12 for SEED (rules out /usr/bin/python3 3.9 + brew default 3.14). Install brew first."
+    fi
+  fi
 else
   PYTHON="$(command -v python3 || true)"
 fi
