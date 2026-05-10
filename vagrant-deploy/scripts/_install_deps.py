@@ -210,11 +210,22 @@ def action_check(deps: dict, deps_file: Path) -> int:
 def action_install(deps: dict, deps_file: Path) -> int:
     pkgs = deps.get("python_packages") or []
     if pkgs:
+        # --break-system-packages bypasses PEP 668 (Homebrew/Debian "externally
+        # managed" python). Combined with --user it stays in the user's
+        # site-packages dir, so it doesn't actually touch the system python.
+        # Older pip (< 23.0) doesn't know the flag — try without first, fall
+        # back to --break-system-packages if pip rejects.
+        base = [sys.executable, "-m", "pip", "install", "--user", "--quiet"]
         print(f"[install_deps] pip install --user {' '.join(map(str, pkgs))}")
-        ret = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--user", "--quiet", *map(str, pkgs)],
-            check=False,
-        )
+        ret = subprocess.run(base + list(map(str, pkgs)), check=False, capture_output=True, text=True)
+        if ret.returncode != 0 and "externally-managed-environment" in (ret.stderr or ""):
+            print("[install_deps] retrying with --break-system-packages (Homebrew/PEP 668)")
+            ret = subprocess.run(
+                base + ["--break-system-packages", *map(str, pkgs)],
+                check=False,
+            )
+        elif ret.returncode != 0:
+            sys.stderr.write(ret.stderr or "")
         if ret.returncode != 0:
             print("[install_deps] pip install failed.", file=sys.stderr)
             return ret.returncode
