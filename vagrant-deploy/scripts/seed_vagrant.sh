@@ -302,10 +302,13 @@ action_up() {
   mkdir -p "${REPO_ROOT}/output"
   vagrant ssh-config > "${REPO_ROOT}/output/vagrant_ssh_config" 2>/dev/null || true
 
-  # Fix SSH key permissions for WSL: copy keys to Linux filesystem
-  local key_dir="/home/$(whoami)/.vagrant_keys"
-  mkdir -p "${key_dir}"
+  # WSL-only: copy SSH keys off the Windows filesystem (which can't honor
+  # chmod 600) into the Linux home dir. On Mac/Linux native filesystems chmod
+  # works directly, so this whole block is a no-op there. We use $HOME (not
+  # /home/$USER) because Mac's home is /Users/<user>.
+  local key_dir="${HOME}/.vagrant_keys"
   if grep -q '/mnt/c/' "${REPO_ROOT}/output/vagrant_ssh_config" 2>/dev/null; then
+    mkdir -p "${key_dir}"
     grep 'IdentityFile /mnt/c/' "${REPO_ROOT}/output/vagrant_ssh_config" \
       | awk '{print $2}' | sort -u | while read -r src; do
       local fname
