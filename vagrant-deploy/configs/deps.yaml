@@ -22,9 +22,70 @@ cli_required:
   - scp
 
 install_hints:
-  vagrant: "https://developer.hashicorp.com/vagrant/install (or: sudo apt install vagrant)"
-  ansible-playbook: "sudo apt install ansible"
-  kubectl: "curl -fsSL --create-dirs -o ~/.local/bin/kubectl https://files.m.daocloud.io/dl.k8s.io/release/v1.28.5/bin/linux/amd64/kubectl && chmod +x ~/.local/bin/kubectl"
-  python3: "sudo apt install python3 python3-yaml"
-  ssh: "sudo apt install openssh-client"
-  scp: "sudo apt install openssh-client"
+  vagrant: "https://developer.hashicorp.com/vagrant/install (Linux: sudo apt install vagrant; Mac: brew install --cask vagrant)"
+  ansible-playbook: "Linux: sudo apt install ansible; Mac: brew install ansible"
+  kubectl: "Linux: curl -fsSL --create-dirs -o ~/.local/bin/kubectl https://files.m.daocloud.io/dl.k8s.io/release/v1.28.5/bin/linux/amd64/kubectl && chmod +x ~/.local/bin/kubectl; Mac: brew install kubernetes-cli"
+  python3: "Linux: sudo apt install python3 python3-yaml; Mac: brew install python3"
+  ssh: "sudo apt install openssh-client (Mac built-in)"
+  scp: "sudo apt install openssh-client (Mac built-in)"
+
+# -----------------------------------------------------------------------------
+# Per-vagrant-provider dependencies.
+#
+# Read cluster.yaml's `provider` field at preflight time, dispatch to the
+# matching block below, validate every requirement. `install_deps.sh check`
+# only reports issues; `install_deps.sh install` will additionally try to
+# auto-start any daemon listed under `daemons` (sudo launchctl on macOS,
+# sudo systemctl on Linux).
+#
+# Sections inside each provider:
+#   vagrant_plugins  — `vagrant plugin list` must show each
+#   cli              — extra binaries that must be in $PATH
+#   files            — paths that must exist (eg helper certificates)
+#   apps             — at least one of the listed paths exists (multi-platform)
+#   daemons          — background services; probed via shell command, started
+#                      via the platform-specific `ensure_*` command
+# -----------------------------------------------------------------------------
+provider_dependencies:
+  vmware_desktop:
+    vagrant_plugins:
+      - vagrant-vmware-desktop
+    files:
+      - path: /opt/vagrant-vmware-desktop/certificates/vagrant-utility.client.crt
+        purpose: "Vagrant VMware Utility (helper daemon plugin uses to talk to Fusion/Workstation)"
+        install_hint: "Mac: brew install --cask vagrant-vmware-utility | other: download .pkg from https://developer.hashicorp.com/vagrant/install/vmware"
+    apps:
+      - paths:
+          - /Applications/VMware Fusion.app
+          - /mnt/c/Program Files (x86)/VMware/VMware Workstation/vmware.exe
+          - /mnt/d/vmware/vmware.exe
+          - /usr/bin/vmware
+        purpose: "VMware Fusion (Mac) or VMware Workstation (Win/Linux)"
+        install_hint: "Mac: brew install --cask vmware-fusion | Win/Linux: https://www.vmware.com/products/workstation"
+    daemons:
+      - name: vagrant-vmware-utility
+        probe: "curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:9922/status"
+        expected: "200"
+        ensure_macos: "sudo launchctl load /Library/LaunchDaemons/com.vagrant.vagrant-vmware-utility.plist"
+        ensure_linux: "sudo systemctl start vagrant-vmware-utility"
+  virtualbox:
+    vagrant_plugins: []      # provider built into vagrant
+    cli:
+      - vboxmanage
+    apps:
+      - paths:
+          - /mnt/c/Program Files/Oracle/VirtualBox/VirtualBox.exe
+          - /Applications/VirtualBox.app
+          - /usr/bin/VirtualBox
+        purpose: "VirtualBox"
+        install_hint: "https://www.virtualbox.org/wiki/Downloads (Mac: brew install --cask virtualbox)"
+  libvirt:
+    vagrant_plugins:
+      - vagrant-libvirt
+    cli:
+      - virsh
+    apps:
+      - paths:
+          - /usr/bin/qemu-system-x86_64
+        purpose: "QEMU/KVM (libvirt provider)"
+        install_hint: "sudo apt install qemu-kvm libvirt-daemon-system"

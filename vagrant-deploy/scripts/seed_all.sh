@@ -29,9 +29,16 @@ log()  { echo "[seed_all] $*"; }
 die()  { echo "[seed_all] ERROR: $*" >&2; exit 1; }
 
 stage_preflight() {
-  log "Preflight — dependency check (configs/deps.yaml)"
-  bash "${SCRIPT_DIR}/install_deps.sh" check \
-    || die "Preflight failed; fix above or run: bash scripts/install_deps.sh install"
+  log "Preflight — dependency check + auto-ensure (configs/deps.yaml)"
+  # Use 'install' mode rather than 'check': it pip-installs missing python
+  # packages, then for the active provider (cluster.yaml) it auto-starts any
+  # daemon that's not running (eg vagrant-vmware-utility on macOS via sudo
+  # launchctl). This avoids the user needing manual `sudo launchctl ...` dance
+  # mid-run. CLI tools / hypervisor apps still aren't auto-installed (they
+  # need the user's chosen install method) — those still print install_hint
+  # and abort.
+  bash "${SCRIPT_DIR}/install_deps.sh" install \
+    || die "Preflight failed; install missing items above and re-run."
 }
 
 stage_vm()    { bash "${SCRIPT_DIR}/seed_vagrant.sh"   up;       }

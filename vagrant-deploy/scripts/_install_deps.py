@@ -64,7 +64,122 @@ def print_cli_missing(missing: list[str], hints: dict) -> None:
             print(f"      install: {h}", file=sys.stderr)
 
 
-def action_check(deps: dict) -> int:
+def get_active_provider(deps_file: Path) -> str | None:
+    """Read configs/cluster.yaml's `provider` field. Returns None if missing."""
+    cluster_yaml = deps_file.parent / "cluster.yaml"
+    if not cluster_yaml.is_file():
+        return None
+    try:
+        cfg = yaml.safe_load(cluster_yaml.read_text()) or {}
+        return cfg.get("provider")
+    except Exception:
+        return None
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list[str]:
+    """Validate per-provider dependencies (plugins, files, apps, daemons).
+    When ensure=True, attempt sudo launchctl/systemctl to start any
+    not-running daemon (with platform-appropriate command).
+    Returns a list of human-readable problems (empty = all good)."""
+    problems: list[str] = []
+    pdeps_all = deps.get("provider_dependencies") or {}
+    pdeps = pdeps_all.get(provider)
+    if not pdeps:
+        return problems  # provider not declared → skip
+
+    # 1. vagrant plugins
+    plugins = pdeps.get("vagrant_plugins") or []
+    if plugins and shutil.which("vagrant"):
+        try:
+            out = subprocess.run(
+                ["vagrant", "plugin", "list"],
+                capture_output=True, text=True, check=False, timeout=15,
+            ).stdout
+        except Exception:
+            out = ""
+        for plug in plugins:
+            if plug not in out:
+                problems.append(
+                    f"vagrant plugin missing: {plug}  (install: vagrant plugin install {plug})"
+                )
+
+    # 2. extra CLI binaries
+    for cli in pdeps.get("cli") or []:
+        if shutil.which(cli) is None:
+            problems.append(f"CLI missing: {cli}")
+
+    # 3. file paths that must exist
+    for f in pdeps.get("files") or []:
+        path = f.get("path", "")
+        if path and not Path(path).exists():
+            problems.append(
+                f"file missing: {path}  ({f.get('purpose','')}) — install: {f.get('install_hint','')}"
+            )
+
+    # 4. multi-platform app paths (any-of)
+    for a in pdeps.get("apps") or []:
+        paths = a.get("paths") or []
+        if paths and not any(Path(p).exists() for p in paths):
+            problems.append(
+                f"app not found in any of {paths}  ({a.get('purpose','')}) — install: {a.get('install_hint','')}"
+            )
+
+    # 5. daemons (probe + optional ensure)
+    for d in pdeps.get("daemons") or []:
+        name = d.get("name", "?")
+        probe = d.get("probe", "")
+        expected = str(d.get("expected", "")).strip()
+        if not probe:
+            continue
+        try:
+            res = subprocess.run(
+                ["sh", "-c", probe], capture_output=True, text=True, check=False, timeout=10
+            )
+            actual = res.stdout.strip()
+        except Exception:
+            actual = ""
+        if actual == expected:
+            continue
+        # Daemon not responding as expected.
+        if not ensure:
+            problems.append(
+                f"daemon not running: {name}  (probe '{probe}' returned '{actual}', expected '{expected}')"
+            )
+            continue
+        ensure_cmd = d.get("ensure_macos") if is_macos() else d.get("ensure_linux")
+        if not ensure_cmd:
+            problems.append(f"daemon not running: {name} (no ensure command for this platform)")
+            continue
+        print(f"[install_deps] starting {name} via: {ensure_cmd}", file=sys.stderr)
+        ret = subprocess.run(["sh", "-c", ensure_cmd], check=False)
+        if ret.returncode != 0:
+            problems.append(f"failed to start daemon {name}: {ensure_cmd}")
+            continue
+        # Re-probe after ensure (give daemon a couple seconds to come up).
+        import time
+        for _ in range(5):
+            time.sleep(1)
+            res = subprocess.run(
+                ["sh", "-c", probe], capture_output=True, text=True, check=False, timeout=10
+            )
+            if res.stdout.strip() == expected:
+                break
+        else:
+            problems.append(f"daemon {name} still not responding after ensure")
+    return problems
+
+
+def print_provider_problems(provider: str, problems: list[str]) -> None:
+    print(f"[install_deps] Provider '{provider}' dependency issues:", file=sys.stderr)
+    for p in problems:
+        print(f"  - {p}", file=sys.stderr)
+
+
+def action_check(deps: dict, deps_file: Path) -> int:
     rc = 0
     py_problems = check_python(deps)
     if py_problems:
@@ -77,12 +192,22 @@ def action_check(deps: dict) -> int:
     if cli_missing:
         print_cli_missing(cli_missing, deps.get("install_hints") or {})
         rc = 1
+    provider = get_active_provider(deps_file)
+    if provider:
+        prov_problems = check_provider_deps(deps, provider, ensure=False)
+        if prov_problems:
+            print_provider_problems(provider, prov_problems)
+            print(
+                "  fix with: bash scripts/install_deps.sh install   # (will sudo to start daemons)",
+                file=sys.stderr,
+            )
+            rc = 1
     if rc == 0:
         print("[install_deps] All dependencies satisfied.")
     return rc
 
 
-def action_install(deps: dict) -> int:
+def action_install(deps: dict, deps_file: Path) -> int:
     pkgs = deps.get("python_packages") or []
     if pkgs:
         print(f"[install_deps] pip install --user {' '.join(map(str, pkgs))}")
@@ -101,6 +226,16 @@ def action_install(deps: dict) -> int:
             file=sys.stderr,
         )
         return 1
+    provider = get_active_provider(deps_file)
+    if provider:
+        prov_problems = check_provider_deps(deps, provider, ensure=True)
+        if prov_problems:
+            print_provider_problems(provider, prov_problems)
+            print(
+                "[install_deps] Provider deps could not be auto-fixed; install missing items then re-run.",
+                file=sys.stderr,
+            )
+            return 1
     print("[install_deps] All dependencies satisfied.")
     return 0
 
@@ -113,9 +248,9 @@ def main() -> int:
     deps = load_deps(deps_file)
     action = sys.argv[1] if len(sys.argv) > 1 else "check"
     if action == "check":
-        return action_check(deps)
+        return action_check(deps, deps_file)
     if action == "install":
-        return action_install(deps)
+        return action_install(deps, deps_file)
     print(f"[install_deps] unknown action: {action} (try check|install)", file=sys.stderr)
     return 2
 
