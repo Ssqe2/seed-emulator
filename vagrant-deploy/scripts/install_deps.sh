@@ -60,8 +60,15 @@ fi
 [[ -x "${PYTHON}" ]] || die "python3 is required.  sudo apt install python3 python3-yaml"
 
 # Bootstrap: install_deps.sh itself depends on PyYAML to read deps.yaml.
+# When PYTHON was just freshly brew-installed (eg python@3.12 above), it
+# starts empty — auto-install pyyaml so we can proceed.
 if ! "${PYTHON}" -c "import yaml" 2>/dev/null; then
-  die "Python module 'yaml' missing.  ${PYTHON} -m pip install --user pyyaml  (or: sudo apt install python3-yaml)"
+  echo "[install_deps] bootstrapping pyyaml for ${PYTHON}" >&2
+  "${PYTHON}" -m pip install --user --quiet pyyaml 2>/dev/null \
+    || "${PYTHON}" -m pip install --user --break-system-packages --quiet pyyaml 2>/dev/null \
+    || die "Failed to install pyyaml for ${PYTHON}.  Run: ${PYTHON} -m pip install --user --break-system-packages pyyaml"
+  "${PYTHON}" -c "import yaml" 2>/dev/null \
+    || die "pyyaml still not importable after install attempt"
 fi
 
 ACTION="${1:-check}"
