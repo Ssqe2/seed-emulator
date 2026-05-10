@@ -147,18 +147,14 @@ log "CNI iface: ${SEED_CNI_MASTER_INTERFACE:-?}"
 
 # 4) Hand off to the upstream profile runner
 #
-# macOS quirk: SEED upstream profile_runner.sh uses bash 4+ syntax
-# (${VAR@Q}) — needs brew bash; but its inner `python3` invocations
-# need a python whose pip wheels exist for SEED's pinned deps —
-# brew python 3.14 lacks rpds-py/eth-* wheels and falls back to source
-# build (needs rust). Apple's /usr/bin/python3 (3.9) has all the wheels.
-# So: explicitly pick brew bash + put /usr/bin in front of PATH so the
-# shell's `python3` resolves to system 3.9.
+# macOS quirk: SEED upstream profile_runner.sh uses bash 4+ \${VAR@Q}
+# syntax. Mac /bin/bash is 3.2 (GPL-v2 locked). Explicitly invoke
+# /opt/homebrew/bin/bash so the upstream script gets a 4+ shell.
+# (The Python interpreter selection is handled by scripts/bin/python3
+# shim which scripts/bin is prepended to PATH at line 42.)
 if [ "$(uname)" = "Darwin" ]; then
   BASH_BIN="/opt/homebrew/bin/bash"
   [ -x "$BASH_BIN" ] || BASH_BIN="bash"
-  PATH="/usr/bin:${PATH}"
-  export PATH
 else
   BASH_BIN="bash"
 fi

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Pick the right python3 for SEED upstream:
+#   macOS: brew python@3.12 (3.10+ for upstream's `match` syntax;
+#          ≤3.13 because SEED's pinned reqs lack 3.14 wheels)
+#   Linux: /usr/bin/python3 (system)
+if [ "$(uname)" = "Darwin" ] && [ -x /opt/homebrew/opt/python@3.12/bin/python3.12 ]; then
+    exec /opt/homebrew/opt/python@3.12/bin/python3.12 "$@"
+fi
+exec /usr/bin/python3 "$@"
