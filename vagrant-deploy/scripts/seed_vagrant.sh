@@ -258,24 +258,32 @@ action_up() {
 
   generate_vagrantfile
 
-  # Box-drift detection: if .vagrant/machines/ caches a VM built from a
-  # different box than the freshly generated Vagrantfile asks for (eg arch
-  # switched x86 → arm64, or box upgraded), the cached VM image won't boot
-  # ("requires X86 architecture, incompatible with Arm host" etc). Destroy
-  # the old VMs so vagrant up rebuilds from the new box.
+  # Box-drift detection: when cluster.yaml's box (or the multi-arch resolved
+  # box) changes between runs, .vagrant/machines/ still references the old
+  # VM image — vagrant up will boot the cached VMX which crashes (eg "requires
+  # X86 architecture, incompatible with Arm host"). We track the last box used
+  # via a sidecar marker file (.vagrant/seed_box_marker) and destroy stale VMs
+  # if it differs from the freshly generated Vagrantfile's box.
+  #
+  # We use our own marker rather than vagrant's box_meta because vmware_desktop
+  # doesn't write box_meta the same way virtualbox does.
   cd "${REPO_ROOT}"
-  local expected_box cached_box machine_dir
+  local expected_box cached_box marker
+  marker=".vagrant/seed_box_marker"
   expected_box="$(awk -F'"' '/^[[:space:]]*config\.vm\.box[[:space:]]*=/ {print $2; exit}' Vagrantfile)"
   if [[ -n "${expected_box}" && -d .vagrant/machines ]]; then
-    for machine_dir in .vagrant/machines/*/*/; do
-      [[ -f "${machine_dir}box_meta" ]] || continue
-      cached_box="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("name",""))' "${machine_dir}box_meta" 2>/dev/null || true)"
-      if [[ -n "${cached_box}" && "${cached_box}" != "${expected_box}" ]]; then
-        log "box drift: cached='${cached_box}' wanted='${expected_box}' — destroying old VMs"
-        vagrant destroy -f 2>&1 | tail -3 || true
-        break
-      fi
-    done
+    cached_box=""
+    [[ -f "${marker}" ]] && cached_box="$(cat "${marker}" 2>/dev/null || true)"
+    if [[ "${cached_box}" != "${expected_box}" ]]; then
+      log "box drift: cached='${cached_box:-<none>}' wanted='${expected_box}' — destroying old VMs"
+      vagrant destroy -f 2>&1 | tail -5 || true
+    fi
+  fi
+  # Write/refresh marker so the next run can compare. (.vagrant is already
+  # in vagrant's own gitignore semantics — never committed.)
+  if [[ -n "${expected_box}" ]]; then
+    mkdir -p .vagrant
+    echo "${expected_box}" > "${marker}"
   fi
 
   log "Starting VMs with provider: ${provider}"
