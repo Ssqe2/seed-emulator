@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Some upstream SEED scripts (e.g. opencode_seedlab_smoke.sh used by tier2
+# profiles like transit_as) call `python - <<EOF` directly. Ubuntu 22.04
+# only ships python3; this shim makes `python` resolve to python3 without
+# requiring the `python-is-python3` system package.
+exec /usr/bin/python3 "$@"

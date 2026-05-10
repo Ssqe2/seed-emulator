@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Minimal rg shim: SEED scripts use rg as a grep replacement (regex search,
+# usually filtering stdin from `git ls-files`). grep -E is a 1:1 substitute
+# for those pipeline-style invocations. NOTE: don't add -r — it would make
+# grep recurse the cwd and ignore stdin.
+exec /usr/bin/grep -E "$@"

@@ -1,0 +1,57 @@
+# SEED Emulator — Deployment Configuration (常用层)
+#
+# 这一层是用户每次跑都可能要看/改的核心字段。进阶选项见 advanced.yaml,
+# 性能/超时调优见 tuning.yaml。三个文件都被 scripts/gen_deploy_env.py
+# 翻译成 SEED_* 环境变量,在 scripts/seed_run.sh 启动时一次注入。
+#
+# 留空的字段表示"沿用上游 SEED 脚本的默认值",不会被 export。
+
+# --- Profile selection ----------------------------------------------------
+# Available profiles defined in seed-emulator/configs/seed_k8s_profiles.yaml:
+#   mini_internet | real_topology_rr | real_topology_rr_scale |
+#   transit_as | mini_internet_viz | hybrid_kubevirt
+profile: custom
+namespace: ""                    # SEED_NAMESPACE  (空 = 用 profile 自带的默认)
+
+# 自定义拓扑:profile=custom 时填这个,指向你自己的拓扑 Python 文件。
+# 路径相对 vagrant-deploy/ 根 (eg topologies/my_topology.py),也可以指向
+# seed-emulator 上游 example (eg ../examples/kubernetes/k8s_nano_internet.py)。
+# seed_run.sh 启动时会自动把它注册成上游的 'custom' profile,无需你手动
+# 修改 seed-emulator/configs/seed_k8s_profiles.yaml。
+topology_file: "../examples/kubernetes/k8s_nano_internet.py"
+
+# --- CNI / scheduling 主选项 --------------------------------------------
+cni:
+  # `vxlan-overlay`: SEED IX is implemented as a per-IX Linux bridge bound to
+  # a VXLAN tunnel between K3s nodes (ansible step 3.6). Pods attach to the
+  # local bridge; cross-node frames are encapsulated over UDP/4789 to peers
+  # via the K3s underlay (192.168.77.x). No vmnet promiscuous required, so
+  # it works on every Vagrant provider (vmware/virtualbox/libvirt). This is
+  # the standard mechanism every Kubernetes overlay (Flannel-vxlan, Calico,
+  # Cilium, Weave) uses for cross-host L2.
+  type: vxlan-overlay            # SEED_CNI_TYPE   vxlan-overlay | macvlan | ipvlan | bridge | host-local
+
+scheduling:
+  # 留空 = 用 profile 自带的默认策略(mini_internet 默认 by_as_hard;
+  # transit_as 默认 auto;real_topology_rr 默认 custom)。显式写一个值
+  # 会覆盖 profile 默认 — 但要求该 profile 自己 ship 了对应 NODE_LABELS_JSON,
+  # 否则 by_as_hard 会断言失败。改 profile 时这里建议留空。
+  strategy: ""                   # SEED_SCHEDULING_STRATEGY  by_as_hard | by_as | custom | none | "" = profile default
+  placement_mode: ""              # SEED_PLACEMENT_MODE       同上,空 = profile default
+  min_nodes_used: 2              # SEED_MIN_NODES_USED
+  require_all_nodes: false       # SEED_REQUIRE_ALL_NODES
+
+# --- Topology 主选项 ------------------------------------------------------
+topology:
+  hosts_per_as: 2                # SEED_HOSTS_PER_AS  (mini_internet 类 profile 用)
+
+# --- Image build & distribution 主选项 ----------------------------------
+image:
+  pull_policy: Always            # SEED_IMAGE_PULL_POLICY        Always | IfNotPresent | Never
+  distribution_mode: registry    # SEED_IMAGE_DISTRIBUTION_MODE  registry | preload
+
+# --- Build 调优 -----------------------------------------------------------
+advanced:
+  build_parallelism: 1           # SEED_BUILD_PARALLELISM
+  docker_buildkit: 0             # SEED_DOCKER_BUILDKIT  (1 启用 BuildKit)
+  run_id: ""                     # SEED_RUN_ID  (空 = profile_runner 用时间戳生成)

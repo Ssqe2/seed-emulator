@@ -1,0 +1,93 @@
+# SEED Emulator — Advanced / Profile-Specific Configuration
+#
+# 进阶层:不是日常会改的,但做特定实验或走特定 profile 时需要填。
+# 这些字段都对应一个上游 SEED_* 变量,scripts/gen_deploy_env.py 在 export
+# 前会跳过空值,所以保持空白等于继承上游默认。
+#
+# 想做的事 → 来这个文件找:
+#   * BGP / 路由协议实验           → 看 routing
+#   * custom 调度策略 / 拓扑感知    → 看 scheduling
+#   * 跑 real_topology_rr 真实拓扑 → 看 topology
+#   * 镜像分发出问题想 fallback     → 看 image
+#   * 装观测栈                     → 看 observability
+#   * 做故障注入                   → 看 failure_injection
+#   * hybrid_kubevirt / Kind 场景  → 看 kubevirt / kind
+#   * 集成 mcp-server AI agent      → 看 agent
+
+# --- 进阶 CNI -------------------------------------------------------------
+cni:
+  auto_fallback: ""              # SEED_AUTO_CNI_FALLBACK   (true|false)
+
+# --- 进阶 scheduling -----------------------------------------------------
+scheduling:
+  node_labels: ""                # SEED_NODE_LABELS_JSON   (JSON;strategy=custom 时必填)
+  node_pod_reserve: ""           # SEED_NODE_POD_RESERVE   (real_topology 调度规划用)
+  colocate_ix_peers: ""          # SEED_COLOCATE_IX_PEERS
+
+# --- 进阶 topology -------------------------------------------------------
+topology:
+  size: ""                       # SEED_TOPOLOGY_SIZE      (real_topology_rr: 214|1078|1897)
+  file: ""                       # SEED_TOPOLOGY_FILE      (override 拓扑数据文件路径)
+  real_topology_dir: ""          # SEED_REAL_TOPOLOGY_DIR
+
+# --- 进阶 image ----------------------------------------------------------
+image:
+  preload_fallback_mode: ""      # SEED_PRELOAD_FALLBACK_MODE
+  acceptance_distribution_mode: "" # SEED_ACCEPTANCE_IMAGE_DISTRIBUTION_MODE
+
+# --- 路由协议实验 --------------------------------------------------------
+routing:
+  bgp_startup_mode: ""           # SEED_BGP_STARTUP_MODE          phased | legacy
+  phase_start_driver: ""         # SEED_PHASE_START_DRIVER        legacy | phased | senior
+  kernel_export_mode: ""         # SEED_KERNEL_EXPORT_MODE
+  routing_kernel_export_mode: "" # SEED_ROUTING_KERNEL_EXPORT_MODE
+  export_bgp_to_kernel: ""       # SEED_K8S_RUNTIME_EXPORT_BGP_TO_KERNEL
+  ospf_timing_profile: ""        # SEED_OSPF_TIMING_PROFILE       real_topology_rr
+  ibgp_reflection_mode: ""       # SEED_IBGP_REFLECTION_MODE      real_topology_rr
+
+# --- 观测栈 (装了 obs_stack 才用) ----------------------------------------
+observability:
+  grafana_password: ""           # SEED_OBS_GRAFANA_PASSWORD
+  namespace: ""                  # SEED_OBS_NAMESPACE
+
+# --- 故障注入 (做实验才用) ----------------------------------------------
+failure_injection:
+  action_map: ""                 # SEED_FAILURE_ACTION_MAP        (path to YAML)
+  recovery_mode: ""              # SEED_FAILURE_INJECTION_RECOVERY_MODE
+
+# --- Namespace 管理 -------------------------------------------------------
+namespace_management:
+  clean: ""                      # SEED_CLEAN_NAMESPACE   (true|false)
+  excluded: ""                   # SEED_EXCLUDED_NAMESPACES   (CSV)
+
+# --- KubeVirt(只 hybrid_kubevirt profile 用) ---------------------------
+kubevirt:
+  vm_node: ""                    # SEED_VM_NODE
+  worker_a: ""                   # SEED_WORKER_A
+  worker_b: ""                   # SEED_WORKER_B
+
+# --- Kind(我们走 Vagrant,这一节通常不用) ------------------------------
+kind:
+  fix_masq: ""                   # SEED_KIND_FIX_MASQ
+  masq_exempt_cidrs: ""          # SEED_KIND_MASQ_EXEMPT_CIDRS
+
+# --- AI agent 集成(mcp-server / opencode) -----------------------------
+agent:
+  proactive_mode: ""             # SEED_AGENT_PROACTIVE_MODE
+
+# --- Debug / 输出控制 -----------------------------------------------------
+debug:
+  runner_log: ""                 # SEED_RUNNER_LOG    (true|false)
+  smoke_verbose: ""              # SEED_SMOKE_VERBOSE (true|false)
+  showcase_port: ""              # SEED_SHOWCASE_PORT
+  web151_sim_ip: ""              # SEED_WEB151_SIM_IP   (mini_internet only)
+  kubecontext: ""                # SEED_KUBECONTEXT
+
+# --- 外部文件路径 ---------------------------------------------------------
+files:
+  assignment: ""                 # SEED_ASSIGNMENT_FILE
+  registry_local_endpoint: ""    # SEED_REGISTRY_LOCAL_ENDPOINT
+
+# --- 镜像 push 调优 -------------------------------------------------------
+advanced:
+  docker_max_concurrent_uploads: "" # SEED_DOCKER_MAX_CONCURRENT_UPLOADS

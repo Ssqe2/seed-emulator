@@ -1,0 +1,32 @@
+# SEED Emulator — VM Cluster Configuration
+# Used by scripts/seed_vagrant.sh to create VMs via Vagrant
+
+provider: vmware_desktop
+
+box: generic/ubuntu2204
+
+network:
+  type: private_network
+
+# Enable CPU virtualization extensions passthrough to guest VMs.
+# Required when running Vagrant + a hypervisor (libvirt/KVM/VirtualBox) inside the guest.
+nested_virt: false
+
+nodes:
+  - name: master
+    role: master
+    cpus: 2
+    memory: 4096
+    ip: 192.168.77.10
+
+  - name: worker1
+    role: worker
+    cpus: 2
+    memory: 2048
+    ip: 192.168.77.11
+
+  - name: worker2
+    role: worker
+    cpus: 2
+    memory: 2048
+    ip: 192.168.77.12

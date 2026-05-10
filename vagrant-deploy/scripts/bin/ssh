@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Drop-in ssh shim that always reads our vagrant_ssh_config (which contains
+# the master/workerN port-forwarded entries AND IP aliases for the cluster's
+# private IPs). seed_run.sh prepends scripts/bin to PATH so any upstream
+# script invoking `ssh ...` transparently goes through this wrapper.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+exec /usr/bin/ssh -F "${REPO_ROOT}/output/vagrant_ssh_config" "$@"

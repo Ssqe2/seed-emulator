@@ -1,0 +1,68 @@
+# SEED Emulator — K3s Cluster Configuration
+# Used by scripts/seed_k3s_setup.sh to install K3s and related components
+
+# Set to true if running in China (GitHub/Docker Hub blocked)
+# Uses rancher-mirror, jsdelivr, gh-proxy, aliyun for downloads
+china_mirror: true
+
+k3s:
+  version: v1.28.5+k3s1
+  cluster_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  max_pods: 110
+  flannel_backend: host-gw
+
+registry:
+  port: 5000
+
+  # Per-source-registry mirror endpoints used by containerd (registries.yaml)
+  # and by the local Docker daemon (registry-mirrors).
+  #
+  # Order = priority. containerd tries the first endpoint, falls through to
+  # subsequent ones on TLS / DNS / 5xx failure.
+  #
+  # Add a new source whenever we discover an image whose canonical registry
+  # is reachable from neither master nor workers (e.g. ghcr.io was added
+  # because Multus pulls from there and we have no GitHub Container mirror).
+  mirrors:
+    docker.io:
+      - https://docker.1ms.run         # 1ms.run avoids the daocloud → cloudflare blob redirect
+      - https://docker.m.daocloud.io   # secondary fallback
+    ghcr.io:
+      - https://ghcr.m.daocloud.io
+
+  # Images to preload into the in-cluster registry (192.168.77.10:5000) so
+  # workers can pull them over the private network instead of each one
+  # hitting external mirrors (which fail intermittently with DNS / blob
+  # redirects on resource-constrained workers).
+  #
+  # Mechanism (executed once on master, after the registry is up):
+  #   1. docker pull <image>          (via daemon mirror = 1ms.run/daocloud)
+  #   2. docker tag <image> 192.168.77.10:5000/<bare-path>
+  #   3. docker push 192.168.77.10:5000/<bare-path>
+  #
+  # Each worker's containerd registries.yaml lists 192.168.77.10:5000 as the
+  # FIRST endpoint for docker.io and ghcr.io, so a worker hitting a preloaded
+  # image gets it from the LAN; otherwise it falls through to the external
+  # mirrors above.
+  preload_images:
+    - rancher/mirrored-pause:3.6                          # K3s sandbox image (every pod)
+    - ghcr.io/k8snetworkplumbingwg/multus-cni:snapshot    # Multus DaemonSet
+
+cni:
+  # `vxlan-overlay`: see configs/deploy.yaml for the rationale. Ansible step
+  # 3.6 creates per-IX bridge + vxlan; the SEED compiler emits IX NADs of
+  # type=bridge that pods attach to.
+  type: vxlan-overlay
+  master_interface: auto    # auto = detect from default route
+
+multus:
+  install: true
+  rbac_patch: true
+
+emulator:
+  namespace: seedemu
+  scheduling_strategy: auto    # auto | by_as | by_as_hard | none
+  image_pull_policy: Always    # Always | IfNotPresent
+  internet_map: false          # true = enable web visualization
+  generate_services: true      # true = generate K8s Service resources

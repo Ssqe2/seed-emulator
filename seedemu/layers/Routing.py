@@ -25,15 +25,7 @@ protocol kernel {{
     scan time {interval};
     ipv4 {{
         import none;
-        # 核心修改在这里：加一个过滤器
-        export filter {{
-            # 允许直连路由写入内核（保证互联互通）
-            if source = RTS_DEVICE then accept;
-            # 允许 OSPF 路由写入内核（保证 iBGP Loopback 可达）
-            if source = RTS_OSPF then accept;
-            # 拒绝其他所有路由（包括 BGP 路由）写入内核！
-            reject;
-        }};
+        export all;
     }};
 }}
 """

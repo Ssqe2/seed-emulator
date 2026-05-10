@@ -177,6 +177,15 @@ class KubernetesCompiler(Docker):
                 if type == 'net':
                     self.__manifests.append(self._compileNetK8s(obj))
 
+        # 1.5 If using vxlan-overlay, write a spec file (vxlan-overlay-spec.json)
+        # to the compile output directory listing every cross-node SEED network
+        # and its assigned VNI. The ansible playbook reads this spec and runs
+        # `ip link add br-<key> + vxlan-<key>` on each K3s node host directly
+        # — no image dependency, no DaemonSet pod overhead. Picks deterministic
+        # VNIs so re-compiles produce identical setup.
+        if self.__use_multus and self.__cni_type == "vxlan-overlay":
+            self._writeVxlanOverlaySpec(emulator)
+
         # 2. Compile Nodes
         for ((scope, type, name), obj) in registry.getAll().items():
             if type in ['rnode', 'csnode', 'hnode', 'rs', 'snode']:
@@ -563,6 +572,23 @@ class KubernetesCompiler(Docker):
                     "type": "static"
                 }
             }
+        elif cni_type == "vxlan-overlay":
+            # Cross-node L2 via per-network VXLAN tunnel. Pods attach to host
+            # bridge `br-<key>` which is wired to a `vxlan-<key>` interface
+            # tunneling frames over the K3s underlay (192.168.77.x) to the
+            # matching bridge on every other node — one logical L2 segment
+            # cluster-wide, no vmnet promiscuous mode required.
+            #
+            # The bridges + vxlan ifaces themselves are created by a DaemonSet
+            # the compiler emits (see _compileVxlanOverlayDaemonSet); this NAD
+            # only declares which bridge each pod's interface should attach to.
+            net_key = self._getVxlanNetKey(net)
+            config = {
+                "cniVersion": "0.3.1",
+                "type": "bridge",
+                "bridge": f"br-{net_key}",
+                "ipam": {}
+            }
         elif cni_type == "host-local":
             config = {
                 "cniVersion": "0.3.1",
@@ -602,9 +628,108 @@ spec:
         if net_type in {NetworkType.Local, NetworkType.CrossConnect}:
             if self.__local_link_cni_type:
                 return self.__local_link_cni_type
-            if self.__scheduling_strategy == SchedulingStrategy.BY_AS_HARD and self.__cni_type in {"macvlan", "ipvlan"}:
+            # macvlan/ipvlan fall back to per-node bridge under BY_AS_HARD —
+            # caller pinned ASN to a single node, so a local bridge suffices
+            # and avoids the underlay-promiscuous requirement.
+            if self.__scheduling_strategy == SchedulingStrategy.BY_AS_HARD \
+               and self.__cni_type in {"macvlan", "ipvlan"}:
                 return "bridge"
+            # vxlan-overlay: precise routing rather than blanket VXLAN.
+            # SEED upstream design intent is that AS-internal networks stay
+            # on a single node (caller pins ASN via NODE_LABELS_JSON), and a
+            # local bridge is the lighter, more "local-AS-like" choice.
+            #
+            #   - ASN pinned via NODE_LABELS_JSON → same-AS pods land on one
+            #     node → use bridge (skip the small VXLAN encapsulation cost,
+            #     align with SEED upstream design).
+            #   - ASN NOT pinned → pods may spread across nodes → must use
+            #     vxlan-overlay so cross-node L2 still works (OSPF/IBGP need
+            #     ARP across the AS-internal segment).
+            if self.__cni_type == "vxlan-overlay":
+                try:
+                    (scope, _, _) = net.getRegistryInfo()
+                except Exception:
+                    scope = None
+                if scope and str(scope).isdigit() and str(scope) in self.__node_labels:
+                    return "bridge"
         return self.__cni_type
+
+    def _getVxlanNetKey(self, net: Network) -> str:
+        """Suffix used in the per-network VXLAN bridge name (e.g. 'ix100',
+        'net-3-net-100-103'). Used both as the bridge/vxlan iface name suffix
+        AND as the deterministic input that decides VNI assignment.
+
+        Linux iface names are limited to 15 chars (IFNAMSIZ-1). The widest
+        prefix we attach is `vxlan-` (6 chars), so the key must be ≤ 9 chars.
+        Short raw names pass through; longer ones get an md5-derived 9-char
+        hash (deterministic across recompiles)."""
+        raw = self._getRealNetName(net).replace('_', '-').replace('.', '-').lower()
+        if len(raw) <= 9:
+            return raw
+        return md5(raw.encode()).hexdigest()[:9]
+
+    def _writeVxlanOverlaySpec(self, emulator: Emulator) -> None:
+        """Write `vxlan-overlay-spec.json` to the compile output directory,
+        listing every cross-node SEED network that needs a VXLAN tunnel and
+        its assigned VNI. The ansible playbook reads this spec and runs
+        `ip link add br-<key> + vxlan-<key>` on each K3s node host directly
+        (no image, no DaemonSet pod, no in-cluster CNI side-effects).
+
+        Spec format (versioned for future-proofing):
+        {
+          "version": 1,
+          "namespace": "<ns>",
+          "vni_base": 1000,
+          "peer_ips": ["192.168.77.10", "192.168.77.11", ...],
+          "networks": [
+            {"key": "ix100", "vni": 1000},
+            {"key": "ix101", "vni": 1001},
+            ...
+          ]
+        }
+
+        AS-pinned Local networks (caller passed NODE_LABELS_JSON) resolve to
+        plain bridge — those don't get a tunnel and stay out of this spec.
+        """
+        # 1) Collect cross-node networks that resolve to vxlan-overlay.
+        registry = emulator.getRegistry()
+        cross_node_types = {NetworkType.InternetExchange, NetworkType.Local,
+                             NetworkType.CrossConnect}
+        net_keys: List[str] = []
+        seen: Set[str] = set()
+        for ((_, t, _name), obj) in sorted(registry.getAll().items(), key=lambda kv: kv[0]):
+            if t == 'net' and obj.getType() in cross_node_types:
+                if self._resolveNetworkCniType(obj) != "vxlan-overlay":
+                    continue
+                key = self._getVxlanNetKey(obj)
+                if key not in seen:
+                    seen.add(key)
+                    net_keys.append(key)
+        if not net_keys:
+            return
+
+        # 2) Cluster node underlay IPs (peer endpoints of every VXLAN tunnel).
+        # Read from cluster-inventory env vars set by seed_k8s_cluster_inventory.
+        peer_ips: List[str] = []
+        for var in ("SEED_K3S_MASTER_IP", "SEED_K3S_WORKER1_IP",
+                    "SEED_K3S_WORKER2_IP", "SEED_K3S_WORKER3_IP",
+                    "SEED_K3S_WORKER4_IP"):
+            v = os.environ.get(var, "").strip()
+            if v and v not in peer_ips:
+                peer_ips.append(v)
+
+        # 3) Assemble + write spec. VNI base 1000 stays clear of K3s
+        # flannel-default VNI (1) and most platform-reserved VNIs.
+        spec = {
+            "version": 1,
+            "namespace": self.__namespace,
+            "vni_base": 1000,
+            "peer_ips": peer_ips,
+            "networks": [{"key": k, "vni": 1000 + i}
+                         for i, k in enumerate(net_keys)],
+        }
+        with open("vxlan-overlay-spec.json", "w") as f:
+            json.dump(spec, f, indent=2)
 
     def _compileNodeK8s(self, node: Node) -> str:
         """Compile a node to Kubernetes Deployment manifest or KubeVirt VirtualMachine.

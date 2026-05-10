@@ -47,3 +47,10 @@ kind
 
 **/auto-imports.d.ts
 **/components.d.ts
+
+# vagrant-deploy/ — runtime state and per-user secrets
+vagrant-deploy/.vagrant/
+vagrant-deploy/Vagrantfile
+vagrant-deploy/output/
+vagrant-deploy/configs/env.sh
+vagrant-deploy/scripts/__pycache__/

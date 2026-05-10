@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# See ssh shim — same idea but for scp.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+exec /usr/bin/scp -F "${REPO_ROOT}/output/vagrant_ssh_config" "$@"

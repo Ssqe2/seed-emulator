@@ -1,0 +1,30 @@
+# SEED Emulator — Dependency Declaration
+#
+# Read by scripts/install_deps.sh; checked by seed_all.sh stage 0 preflight.
+# Each Python package may specify a pip-style version constraint (e.g.
+# "jinja2<3.1"). CLI tools are checked for presence in $PATH only — they are
+# NOT auto-installed (system packages need root or specific install methods).
+#
+# When a CLI is missing the user is shown the matching `install_hints` entry.
+
+python_packages:
+  - pyyaml
+  # ansible 2.10.x uses jinja2's `environmentfilter`, removed in 3.1+.
+  # Pin to < 3.1 until we upgrade the playbook stack to ansible-core >= 2.13.
+  - "jinja2<3.1"
+
+cli_required:
+  - vagrant
+  - ansible-playbook
+  - kubectl
+  - python3
+  - ssh
+  - scp
+
+install_hints:
+  vagrant: "https://developer.hashicorp.com/vagrant/install (or: sudo apt install vagrant)"
+  ansible-playbook: "sudo apt install ansible"
+  kubectl: "curl -fsSL --create-dirs -o ~/.local/bin/kubectl https://files.m.daocloud.io/dl.k8s.io/release/v1.28.5/bin/linux/amd64/kubectl && chmod +x ~/.local/bin/kubectl"
+  python3: "sudo apt install python3 python3-yaml"
+  ssh: "sudo apt install openssh-client"
+  scp: "sudo apt install openssh-client"

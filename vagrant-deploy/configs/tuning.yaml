@@ -1,0 +1,46 @@
+# SEED Emulator — Tuning Configuration (专家层)
+#
+# 这一层全是 timeout / retries / parallelism。上游脚本对每个字段都有内置
+# 默认值,日常用户几乎不会改。只有在以下情况才动:
+#
+#   * 集群慢、SSH 超时不够 → 调 ssh_*
+#   * 镜像 push 不稳定     → 调 registry_push_*
+#   * BGP 收敛慢           → 调 bgp_phase / bird_*
+#   * kernel 协议来不及切  → 调 kernel_*
+#   * 验证阶段并行度不够   → 调 *_parallelism
+#
+# 全部空着就走上游默认值,什么也不会被 export。
+
+# --- 各种 timeout(单位:秒) -------------------------------------------
+timeouts:
+  acceptance_namespace_delete: ""    # SEED_ACCEPTANCE_NAMESPACE_DELETE_TIMEOUT_SECONDS
+  bgp_phase: ""                      # SEED_BGP_PHASE_TIMEOUT_SECONDS
+  bird_phase: ""                     # SEED_BIRD_PHASE_TIMEOUT_SECONDS
+  bird_start_exec: ""                # SEED_BIRD_START_EXEC_TIMEOUT_SECONDS
+  generic_deploy: ""                 # SEED_GENERIC_DEPLOY_TIMEOUT_SECONDS
+  kernel_birdc: ""                   # SEED_KERNEL_BIRDC_TIMEOUT_SECONDS
+  kernel_exec: ""                    # SEED_KERNEL_EXEC_TIMEOUT_SECONDS
+  kernel_scan_base: ""               # SEED_KERNEL_SCAN_BASE_SECONDS
+  kernel_scan_jitter: ""             # SEED_KERNEL_SCAN_JITTER_SECONDS
+  kubectl_exec: ""                   # SEED_KUBECTL_EXEC_TIMEOUT_SECONDS
+  registry_push: ""                  # SEED_REGISTRY_PUSH_TIMEOUT_SECONDS
+  senior_bird_settle: ""             # SEED_SENIOR_BIRD_SETTLE_SECONDS
+  ssh_connect: ""                    # SEED_SSH_CONNECT_TIMEOUT_SECONDS
+  ssh_long_probe: ""                 # SEED_SSH_LONG_PROBE_TIMEOUT_SECONDS
+  ssh_probe: ""                      # SEED_SSH_PROBE_TIMEOUT_SECONDS
+
+# --- 重试配置 -------------------------------------------------------------
+retries:
+  bird_start: ""                     # SEED_BIRD_START_RETRIES
+  bird_start_backoff: ""             # SEED_BIRD_START_RETRY_BACKOFF_SECONDS
+  kernel_switch: ""                  # SEED_KERNEL_SWITCH_RETRIES
+  kernel_switch_backoff: ""          # SEED_KERNEL_SWITCH_RETRY_BACKOFF_SECONDS
+  registry_push: ""                  # SEED_REGISTRY_PUSH_RETRIES
+  registry_push_backoff: ""          # SEED_REGISTRY_PUSH_BACKOFF_SECONDS
+
+# --- 并行度 ---------------------------------------------------------------
+parallelism:
+  bgp_health: ""                     # SEED_BGP_HEALTH_PARALLELISM
+  phase_protocol: ""                 # SEED_PHASE_PROTOCOL_PARALLELISM
+  phase_status: ""                   # SEED_PHASE_STATUS_PARALLELISM
+  relationship_sample_limit: ""      # SEED_RELATIONSHIP_SAMPLE_LIMIT

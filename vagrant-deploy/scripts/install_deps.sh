@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================================================
+# SEED Emulator — Dependency installer / preflight checker
+#
+# Reads configs/deps.yaml and either:
+#   check     verify deps are present (exit 0 if OK, 1 otherwise)
+#   install   pip install --user the python packages, then verify CLI
+#
+# CLI tools (vagrant/kubectl/etc) are NOT auto-installed; install hints are
+# printed when something is missing.
+#
+# Usage:
+#   install_deps.sh check
+#   install_deps.sh install
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEPS_FILE="${REPO_ROOT}/configs/deps.yaml"
+
+die() { echo "[install_deps] ERROR: $*" >&2; exit 1; }
+
+[[ -f "${DEPS_FILE}" ]] || die "deps.yaml not found at ${DEPS_FILE}"
+command -v python3 &>/dev/null || die "python3 is required.  sudo apt install python3 python3-yaml"
+
+# Bootstrap: install_deps.sh itself depends on PyYAML to read deps.yaml.
+if ! python3 -c "import yaml" 2>/dev/null; then
+  die "Python module 'yaml' missing.  pip install --user pyyaml  (or: sudo apt install python3-yaml)"
+fi
+
+ACTION="${1:-check}"
+case "${ACTION}" in
+  -h|--help|help) sed -n '4,15p' "$0"; exit 0 ;;
+  check|install)  ;;
+  *) die "Unknown action: ${ACTION} (try check|install)" ;;
+esac
+
+DEPS_FILE="${DEPS_FILE}" exec python3 "${SCRIPT_DIR}/_install_deps.py" "${ACTION}"

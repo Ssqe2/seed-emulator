@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Fake virsh shim.
+#
+# Why: `seed-emulator/scripts/validate_k3s_mini_internet_multinode.sh`
+# requires `virsh domstate <vm>` to print "running" for master/worker1/worker2
+# in its preflight check (it was designed against a KVM/libvirt cluster).
+# We use vmware_desktop / virtualbox, so real virsh isn't installed and the
+# check would always fail — masking out 9 perfectly-fine checks below it.
+#
+# This shim makes `virsh domstate ...` answer "running"; every other
+# subcommand falls through to the real /usr/bin/virsh if it exists, or
+# returns 0 silently if it doesn't, so we don't accidentally short-circuit
+# anything else.
+set -euo pipefail
+
+case "${1:-}" in
+  domstate)
+    echo "running"
+    exit 0
+    ;;
+  *)
+    if [ -x /usr/bin/virsh ]; then
+      exec /usr/bin/virsh "$@"
+    fi
+    exit 0
+    ;;
+esac

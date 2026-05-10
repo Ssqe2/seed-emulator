@@ -125,6 +125,16 @@ def run(dumpfile=None, hosts_per_as=2):
     ebgp.addPrivatePeerings(104, [3], [4], PeerRelationship.Peer)
     ebgp.addPrivatePeerings(105, [2], [3], PeerRelationship.Peer)
 
+    # Also register the same ASes as Route Server peers on IX100. The mini_internet
+    # comment block above ("Peering via RS") promised RS-mediated sessions but the
+    # original code only added direct private peerings, leaving rs100's BIRD with
+    # zero BGP protocols — and the upstream verify check
+    # (validate_k3s_mini_internet_multinode.sh:run_verify_bgp) explicitly greps
+    # bird_ix100.txt for `p_as2|p_as3|p_as4 BGP Established`, so it would always
+    # report `bgp_not_established`. Adding RS peerings makes the RS actually peer
+    # with these ASes (next to the direct peerings) and the verify pass.
+    ebgp.addRsPeers(100, [2, 3, 4])
+
     # To buy transit services from another autonomous system,
     # we will use private peering
 
