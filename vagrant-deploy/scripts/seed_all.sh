@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# macOS: ensure brew-installed CLIs are reachable (SSH non-login sessions
+# and bash sub-shells don't source /opt/homebrew/bin/brew shellenv).
+if [ "$(uname)" = "Darwin" ]; then
+  for _p in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$_p" ] || continue
+    case ":${PATH}:" in *":$_p:"*) ;; *) PATH="$_p:${PATH}" ;; esac
+  done
+  export PATH; unset _p
+fi
+
 # ============================================================================
 # SEED Emulator — One-shot driver
 #

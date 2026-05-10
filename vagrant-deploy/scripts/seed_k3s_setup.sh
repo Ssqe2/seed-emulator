@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# macOS PATH bridge: see seed_all.sh comment.
+if [ "$(uname)" = "Darwin" ]; then
+  for _p in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$_p" ] || continue
+    case ":${PATH}:" in *":$_p:"*) ;; *) PATH="$_p:${PATH}" ;; esac
+  done
+  export PATH; unset _p
+fi
+
 # ============================================================================
 # SEED Emulator — K3s Cluster Setup (Ansible-driven)
 #

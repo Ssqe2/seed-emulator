@@ -16,6 +16,19 @@ set -euo pipefail
 #   install_deps.sh install
 # ============================================================================
 
+# macOS: bash sub-shells (and SSH non-login sessions) don't auto-source
+# /opt/homebrew shellenv, so brew-installed CLIs (vagrant, ansible-playbook,
+# kubectl, python3) end up "not in PATH" even though the user's interactive
+# zsh sees them. Prepend brew prefixes so the rest of the framework finds them.
+if [ "$(uname)" = "Darwin" ]; then
+  for _brew_prefix in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "${_brew_prefix}" ] || continue
+    case ":${PATH}:" in *":${_brew_prefix}:"*) ;; *) PATH="${_brew_prefix}:${PATH}" ;; esac
+  done
+  export PATH
+  unset _brew_prefix
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEPS_FILE="${REPO_ROOT}/configs/deps.yaml"
