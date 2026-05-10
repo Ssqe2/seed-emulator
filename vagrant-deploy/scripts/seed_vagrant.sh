@@ -165,7 +165,12 @@ with open(vagrantfile_path, "w") as vf:
     vf.write('# Do not edit manually — edit configs/cluster.yaml instead.\n\n')
     vf.write('Vagrant.configure("2") do |config|\n')
     vf.write(f'  config.vm.box = "{box}"\n')
-    vf.write('  config.ssh.insert_key = false\n\n')
+    vf.write('  config.ssh.insert_key = false\n')
+    # Disable the default /vagrant synced folder. We never use it (all
+    # cluster state moves over SSH via vagrant_ssh_config), and several
+    # boxes (notably gyptazy/ubuntu22.04-arm64) refuse to mkdir the host
+    # user's home dir inside the VM, which breaks `vagrant up`.
+    vf.write('  config.vm.synced_folder ".", "/vagrant", disabled: true\n\n')
 
     # Allocate host SSH ports deterministically: master=2222, workers=2200,2201,…
     # Each VM gets explicit forwarded_port + n.ssh.host/port. Why all of them
