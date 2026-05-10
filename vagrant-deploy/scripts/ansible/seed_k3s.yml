@@ -501,6 +501,13 @@
       changed_when: false
       when: docker_present.rc != 0
 
+    - name: Detect dpkg architecture (amd64 / arm64)
+      ansible.builtin.shell:
+        cmd: dpkg --print-architecture
+      register: dpkg_arch
+      changed_when: false
+      when: docker_present.rc != 0
+
     - name: Fetch Aliyun Docker GPG key
       ansible.builtin.get_url:
         url: https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg
@@ -525,7 +532,7 @@
         dest: /etc/apt/sources.list.d/docker.list
         mode: "0644"
         content: |
-          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu {{ codename.stdout }} stable
+          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu {{ codename.stdout }} stable
       when:
         - docker_present.rc != 0
         - docker_install_method == 'aliyun'
