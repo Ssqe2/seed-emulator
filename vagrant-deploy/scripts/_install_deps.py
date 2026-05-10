@@ -281,6 +281,29 @@ def action_check(deps: dict, deps_file: Path) -> int:
     return rc
 
 
+def install_seed_requirements(deps_file: Path) -> int:
+    """If seed-emulator's own requirements.txt exists at the parent of
+    vagrant-deploy/, pip-install it. SEED's seedemu package imports a long
+    tail of 3rd-party libs (requests, geopy, eth_account, web3, ...) at
+    module load; rather than enumerate them individually we just install
+    upstream's pinned set."""
+    # deps_file = vagrant-deploy/configs/deps.yaml
+    # → vagrant-deploy/.. = seed-emulator/
+    seed_root = deps_file.parent.parent.parent
+    req = seed_root / "requirements.txt"
+    if not req.is_file():
+        print(f"[install_deps] note: SEED requirements.txt not found at {req}; skipping", file=sys.stderr)
+        return 0
+    print(f"[install_deps] pip install -r {req} (SEED upstream deps)", file=sys.stderr)
+    base = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "-r", str(req)]
+    ret = subprocess.run(base, check=False, capture_output=True, text=True)
+    if ret.returncode != 0 and "externally-managed-environment" in (ret.stderr or ""):
+        ret = subprocess.run(base + ["--break-system-packages"], check=False)
+    elif ret.returncode != 0:
+        sys.stderr.write(ret.stderr or "")
+    return ret.returncode
+
+
 def action_install(deps: dict, deps_file: Path) -> int:
     pkgs = deps.get("python_packages") or []
     if pkgs:
@@ -303,6 +326,12 @@ def action_install(deps: dict, deps_file: Path) -> int:
         if ret.returncode != 0:
             print("[install_deps] pip install failed.", file=sys.stderr)
             return ret.returncode
+    # Also pip-install SEED upstream's own requirements.txt (long tail of
+    # 3rd-party deps imported by seedemu/* modules at load time).
+    rc = install_seed_requirements(deps_file)
+    if rc != 0:
+        print("[install_deps] pip install -r seed requirements.txt failed.", file=sys.stderr)
+        return rc
     cli_missing = check_cli(deps)
     if cli_missing:
         print_cli_missing(cli_missing, deps.get("install_hints") or {})
