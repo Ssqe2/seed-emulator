@@ -64,11 +64,13 @@ provider_dependencies:
         install_hint: "Mac: brew install --cask vmware-fusion | Win/Linux: https://www.vmware.com/products/workstation"
     daemons:
       - name: vagrant-vmware-utility
-        # vagrant-vmware-utility uses mTLS — probe must present the client cert
-        # installed alongside the server cert (under /opt/vagrant-vmware-desktop/
-        # certificates/), otherwise the API responds 000 (TLS handshake failed).
-        probe: "curl -sk --cert /opt/vagrant-vmware-desktop/certificates/vagrant-utility.client.crt --key /opt/vagrant-vmware-desktop/certificates/vagrant-utility.client.key -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:9922/status"
-        expected: "200"
+        # vagrant-vmware-utility uses mTLS. We don't care which HTTP code the
+        # endpoint returns (some versions answer 200, others 403 for /status);
+        # what matters is that the TCP+TLS handshake succeeded — which means
+        # the daemon is running and our client cert is accepted. Anything
+        # other than '000' (curl's "no connection" placeholder) qualifies.
+        probe: "code=$(curl -sk --cert /opt/vagrant-vmware-desktop/certificates/vagrant-utility.client.crt --key /opt/vagrant-vmware-desktop/certificates/vagrant-utility.client.key -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:9922/ 2>/dev/null); [ -n \"$code\" ] && [ \"$code\" != \"000\" ] && echo OK || echo FAIL"
+        expected: "OK"
         # macOS Sequoia/Sonoma deprecated `launchctl load`; use `bootstrap`
         # (idempotent, errors ignored if already bootstrapped) + `kickstart`
         # to force the service to actually start. Both need root.
