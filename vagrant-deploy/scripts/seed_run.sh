@@ -146,4 +146,20 @@ log "Namespace: ${SEED_NAMESPACE:-(profile default)}"
 log "CNI iface: ${SEED_CNI_MASTER_INTERFACE:-?}"
 
 # 4) Hand off to the upstream profile runner
-exec bash "${PROFILE_RUNNER}" "${PROFILE}" "${ACTION}"
+#
+# macOS quirk: SEED upstream profile_runner.sh uses bash 4+ syntax
+# (${VAR@Q}) — needs brew bash; but its inner `python3` invocations
+# need a python whose pip wheels exist for SEED's pinned deps —
+# brew python 3.14 lacks rpds-py/eth-* wheels and falls back to source
+# build (needs rust). Apple's /usr/bin/python3 (3.9) has all the wheels.
+# So: explicitly pick brew bash + put /usr/bin in front of PATH so the
+# shell's `python3` resolves to system 3.9.
+if [ "$(uname)" = "Darwin" ]; then
+  BASH_BIN="/opt/homebrew/bin/bash"
+  [ -x "$BASH_BIN" ] || BASH_BIN="bash"
+  PATH="/usr/bin:${PATH}"
+  export PATH
+else
+  BASH_BIN="bash"
+fi
+exec "${BASH_BIN}" "${PROFILE_RUNNER}" "${PROFILE}" "${ACTION}"
