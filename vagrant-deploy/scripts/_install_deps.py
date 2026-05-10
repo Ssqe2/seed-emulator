@@ -94,7 +94,13 @@ def check_mac_bash(ensure: bool = False) -> list[str]:
     if not Path(brew_bash).is_file():
         if ensure and shutil.which("brew"):
             print("[install_deps] installing brew bash (required for SEED upstream scripts)", file=sys.stderr)
-            ret = subprocess.run(["brew", "install", "bash"], check=False)
+            # Honor a tsinghua bottle mirror by default — ghcr.io can be slow
+            # or unreachable from China networks. User can override by setting
+            # HOMEBREW_BOTTLE_DOMAIN themselves before invoking.
+            env = os.environ.copy()
+            env.setdefault("HOMEBREW_BOTTLE_DOMAIN",
+                           "https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles")
+            ret = subprocess.run(["brew", "install", "bash"], check=False, env=env)
             if ret.returncode != 0 or not Path(brew_bash).is_file():
                 problems.append("brew install bash failed; please install manually")
                 return problems
