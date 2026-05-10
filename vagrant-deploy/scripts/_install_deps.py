@@ -80,44 +80,55 @@ def is_macos() -> bool:
     return sys.platform == "darwin"
 
 
-def check_mac_bash(ensure: bool = False) -> list[str]:
-    """SEED upstream scripts use bash 4+ parameter transformations (eg
-    ${VAR@Q}) that fail on macOS's GPL-v2-locked /bin/bash 3.2. Require
-    the brew-installed bash to be on PATH and >= 4.
+def check_mac_brew_packages(ensure: bool = False) -> list[str]:
+    """SEED upstream / our framework rely on a few CLI tools that come
+    pre-installed on Linux but not on macOS:
 
-    When ensure=True we'll try `brew install bash` automatically.
+      bash 4+   — required for ${VAR@Q} parameter transformations in
+                  upstream seed_k8s_profile_runner.sh; macOS ships GPL-v2
+                  bash 3.2 which lacks this.
+      flock     — used by upstream profile_runner.sh for run locking;
+                  Linux ships it via util-linux, macOS needs `brew install flock`.
+
+    When ensure=True we'll auto-`brew install` whatever's missing,
+    routing bottle downloads through the tsinghua mirror to avoid
+    ghcr.io network issues from China.
     """
     if not is_macos():
         return []
     problems: list[str] = []
-    brew_bash = "/opt/homebrew/bin/bash"
-    if not Path(brew_bash).is_file():
-        if ensure and shutil.which("brew"):
-            print("[install_deps] installing brew bash (required for SEED upstream scripts)", file=sys.stderr)
-            # Honor a tsinghua bottle mirror by default — ghcr.io can be slow
-            # or unreachable from China networks. User can override by setting
-            # HOMEBREW_BOTTLE_DOMAIN themselves before invoking.
-            env = os.environ.copy()
-            env.setdefault("HOMEBREW_BOTTLE_DOMAIN",
-                           "https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles")
-            ret = subprocess.run(["brew", "install", "bash"], check=False, env=env)
-            if ret.returncode != 0 or not Path(brew_bash).is_file():
-                problems.append("brew install bash failed; please install manually")
-                return problems
-        else:
-            problems.append(
-                f"brew bash not found at {brew_bash} — required because macOS /bin/bash 3.2 "
-                "doesn't support bash 4+ syntax used by SEED upstream scripts. Install: brew install bash"
-            )
-            return problems
-    # Verify version
-    try:
-        out = subprocess.run([brew_bash, "--version"], capture_output=True, text=True, check=False).stdout
-        major = int(out.split("version ")[1].split(".")[0])
-        if major < 4:
-            problems.append(f"brew bash version {major} < 4 (need >= 4 for SEED upstream): brew upgrade bash")
-    except Exception:
-        pass
+
+    # Each entry: (binary path to check, brew formula, optional version-major-floor)
+    requirements = [
+        ("/opt/homebrew/bin/bash", "bash", 4),
+        ("/opt/homebrew/bin/flock", "flock", None),
+    ]
+
+    env = os.environ.copy()
+    env.setdefault("HOMEBREW_BOTTLE_DOMAIN",
+                   "https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles")
+
+    for binpath, formula, min_major in requirements:
+        if not Path(binpath).is_file():
+            if ensure and shutil.which("brew"):
+                print(f"[install_deps] installing brew {formula} (required by framework/upstream)", file=sys.stderr)
+                ret = subprocess.run(["brew", "install", formula], check=False, env=env)
+                if ret.returncode != 0 or not Path(binpath).is_file():
+                    problems.append(f"brew install {formula} failed; please install manually")
+                    continue
+            else:
+                problems.append(
+                    f"brew {formula} not found at {binpath} — install: brew install {formula}"
+                )
+                continue
+        if min_major is not None:
+            try:
+                out = subprocess.run([binpath, "--version"], capture_output=True, text=True, check=False).stdout
+                major = int(out.split("version ")[1].split(".")[0])
+                if major < min_major:
+                    problems.append(f"{formula} version {major} < {min_major}: brew upgrade {formula}")
+            except Exception:
+                pass
     return problems
 
 
@@ -249,7 +260,7 @@ def action_check(deps: dict, deps_file: Path) -> int:
     if cli_missing:
         print_cli_missing(cli_missing, deps.get("install_hints") or {})
         rc = 1
-    mac_bash_problems = check_mac_bash(ensure=False)
+    mac_bash_problems = check_mac_brew_packages(ensure=False)
     if mac_bash_problems:
         print("[install_deps] macOS bash issues:", file=sys.stderr)
         for p in mac_bash_problems:
@@ -300,7 +311,7 @@ def action_install(deps: dict, deps_file: Path) -> int:
             file=sys.stderr,
         )
         return 1
-    mac_bash_problems = check_mac_bash(ensure=True)
+    mac_bash_problems = check_mac_brew_packages(ensure=True)
     if mac_bash_problems:
         print("[install_deps] macOS bash issues:", file=sys.stderr)
         for p in mac_bash_problems:
