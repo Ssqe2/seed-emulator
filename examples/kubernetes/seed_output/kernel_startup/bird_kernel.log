@@ -1,0 +1,8 @@
+[2026-04-08 01:37:46 UTC] === K8s kernel export stage (ALL mode, node-aware) ===
+[2026-04-08 01:37:46 UTC] Grouped 9 targets into 2 nodes.
+[2026-04-08 01:37:52 UTC] Node k3s-worker: switched 3/3 pods.
+[2026-04-08 01:37:58 UTC] Node seedvm: switched 6/6 pods.
+[2026-04-08 01:37:58 UTC] Waiting 15 seconds before the first kernel-route load check.
+[2026-04-08 01:38:13 UTC] Waiting for kernel-route convergence (load < 15.0) across 2 nodes.
+[2026-04-08 01:38:14 UTC] Kernel routing stabilized: seedvm: 6.97 OK, k3s-worker: 2.89 OK
+[2026-04-08 01:38:14 UTC] Kernel export stage completed in 27.92s.

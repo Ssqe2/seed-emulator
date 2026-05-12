@@ -1,0 +1,86 @@
+router id 10.0.0.2;
+ipv4 table t_direct;
+protocol device {
+}
+protocol direct local_nets {
+    ipv4 {
+        table t_direct;
+        import all;
+    };
+
+    interface "net0";
+
+    interface "net1";
+
+}
+
+include "/etc/bird/conf/*.conf";
+ipv4 table t_ospf;
+protocol ospf ospf1 {
+    ipv4 {
+        table t_ospf;
+        import all;
+        export all;
+    };
+    tick 3;
+
+    area 0 {
+        interface "dummy0" { stub; };
+        interface "net0" { hello 30; dead 36000; type pointopoint; retransmit 20;};
+        interface "net1" { hello 30; dead 36000; type pointopoint; retransmit 20;};
+
+    };
+}
+protocol pipe {
+    table t_ospf;
+    peer table master4;
+    import none;
+    export all;
+}
+ipv4 table t_bgp;
+protocol pipe {
+    table t_bgp;
+    peer table master4;
+    import none;
+    export all;
+}
+protocol pipe {
+    table t_direct;
+    peer table t_bgp;
+    import none;
+    export all;
+}
+protocol bgp Ibgp1 {
+    #debug {states};
+    ipv4 {
+        table t_bgp;
+        import all;
+        export all;
+        igp table t_ospf;
+    };
+    local 10.0.0.2 as 3;
+    neighbor 10.0.0.1 as 3;
+}
+protocol bgp Ibgp2 {
+    #debug {states};
+    ipv4 {
+        table t_bgp;
+        import all;
+        export all;
+        igp table t_ospf;
+    };
+    local 10.0.0.2 as 3;
+    neighbor 10.0.0.3 as 3;
+}
+protocol bgp Ibgp3 {
+    #debug {states};
+    ipv4 {
+        table t_bgp;
+        import all;
+        export all;
+        igp table t_ospf;
+    };
+    local 10.0.0.2 as 3;
+    neighbor 10.0.0.4 as 3;
+}
+

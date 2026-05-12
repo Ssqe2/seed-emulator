@@ -99,7 +99,7 @@ stage_sim() {
   # bring BIRD up automatically when pods come up so we skip those two.
   local stages
   case "${profile}" in
-    mini_internet|real_topology_rr|real_topology_rr_scale)
+    mini_internet|real_topology_rr|real_topology_rr_scale|custom)
       stages="compile build deploy start-bird start-kernel verify observe report"
       ;;
     *)

@@ -46,11 +46,9 @@ COMPILER_INVENTORY_DIR="${SEED_DIR}/configs/clusters"
 UPSTREAM_KUBECONFIG_DIR="${SEED_DIR}/output/kubeconfigs"
 UPSTREAM_CLUSTER_NAME="seedemu-k3s"
 
-ENV_FILE="${REPO_ROOT}/configs/env.sh"
-if [[ -f "${ENV_FILE}" ]]; then
-  # shellcheck source=/dev/null
-  source "${ENV_FILE}"
-fi
+# Local env (WSL detect, hypervisor bin_dir, proxy) from declarative configs
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/load_provider_path.sh"
 
 log()  { echo "[seed_k3s] $*"; }
 die()  { echo "[seed_k3s] ERROR: $*" >&2; exit 1; }

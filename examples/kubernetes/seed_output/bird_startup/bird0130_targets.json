@@ -1,0 +1,56 @@
+[
+  {
+    "name": "as3brd-r1-10-3-0-254-75f54b5b4d-rkmvv",
+    "asn": "3",
+    "role": "brd",
+    "node": "seedvm"
+  },
+  {
+    "name": "as3brd-r4-10-3-2-253-7595789fb7-dwp5b",
+    "asn": "3",
+    "role": "brd",
+    "node": "seedvm"
+  },
+  {
+    "name": "as3r-r2-10-3-0-253-7c8fd68db8-9v4zq",
+    "asn": "3",
+    "role": "r",
+    "node": "seedvm"
+  },
+  {
+    "name": "as3r-r3-10-3-1-253-848fd8b85b-vn7rc",
+    "asn": "3",
+    "role": "r",
+    "node": "seedvm"
+  },
+  {
+    "name": "as100brd-ix100-10-100-0-100-7c59b875f-twnd4",
+    "asn": "100",
+    "role": "brd",
+    "node": "seedvm"
+  },
+  {
+    "name": "as101brd-ix101-10-101-0-101-56746c7769-r6cpw",
+    "asn": "101",
+    "role": "brd",
+    "node": "seedvm"
+  },
+  {
+    "name": "as150brd-router0-10-150-0-254-678c48d68f-qxjrb",
+    "asn": "150",
+    "role": "brd",
+    "node": "k3s-worker"
+  },
+  {
+    "name": "as151brd-router0-10-151-0-254-7f6db9cc68-klz9w",
+    "asn": "151",
+    "role": "brd",
+    "node": "k3s-worker"
+  },
+  {
+    "name": "as152brd-router0-10-152-0-254-86cc667847-c2lqs",
+    "asn": "152",
+    "role": "brd",
+    "node": "k3s-worker"
+  }
+]

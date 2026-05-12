@@ -52,5 +52,6 @@ kind
 vagrant-deploy/.vagrant/
 vagrant-deploy/Vagrantfile
 vagrant-deploy/output/
-vagrant-deploy/configs/env.sh
+vagrant-deploy/configs/provider_settings.yaml
+vagrant-deploy/configs/proxy_settings.yaml
 vagrant-deploy/scripts/__pycache__/

@@ -1,0 +1,43 @@
+#!/bin/bash
+set -euo pipefail
+# K8s Address Replacement (Multus)
+
+iface_prefix="net"
+expected_ifaces=2
+
+declare -a seed_ifaces=()
+if [ -n "${iface_prefix}" ] && ip link show "${iface_prefix}1" >/dev/null 2>&1; then
+  for i in $(seq 1 ${expected_ifaces}); do
+    seed_ifaces+=("${iface_prefix}${i}")
+  done
+else
+  default_if="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
+  [ -z "${default_if}" ] && default_if="eth0"
+  mapfile -t seed_ifaces < <(
+    for dev in /sys/class/net/*; do
+      name="$(basename "$dev")"
+      [ "$name" = "lo" ] && continue
+      [ "$name" = "$default_if" ] && continue
+      idx="$(cat "$dev/ifindex" 2>/dev/null || echo 9999)"
+      echo "$idx $name"
+    done | sort -n | awk '{print $2}'
+  )
+fi
+
+configure_iface() {
+  local slot="$1"
+  local addr="$2"
+  local iface="${seed_ifaces[$slot]:-}"
+  if [ -z "$iface" ]; then
+    echo "Missing data interface index $slot for $addr" >&2
+    return 1
+  fi
+  echo "Configuring $iface with $addr"
+  ip link set "$iface" up
+  ip addr flush dev "$iface" || true
+  ip addr add "$addr" dev "$iface"
+}
+
+configure_iface 0 "10.3.0.253/24"
+configure_iface 1 "10.3.1.254/24"
+

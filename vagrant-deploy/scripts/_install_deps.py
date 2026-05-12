@@ -80,6 +80,163 @@ def is_macos() -> bool:
     return sys.platform == "darwin"
 
 
+def detect_host() -> str:
+    """Returns 'macos' | 'wsl' | 'linux_native'. WSL is split out because
+    its hypervisor model differs from native Linux (e.g. VMware Workstation
+    runs on the Windows host, not in WSL — so Linux-side helper daemons
+    aren't installed and shouldn't be probed)."""
+    if sys.platform == "darwin":
+        return "macos"
+    try:
+        with open("/proc/version") as f:
+            if "microsoft" in f.read().lower():
+                return "wsl"
+    except OSError:
+        pass
+    return "linux_native"
+
+
+# Per-provider hypervisor binaries we look for inside user-supplied bin_dir.
+# Cross-platform list (any one present = OK): mac uses bare `vmrun`, WSL
+# bridges to `vmware.exe`, Linux native uses `vmware`/`vmrun`, etc.
+PROVIDER_BINARIES = {
+    "vmware_desktop": ["vmrun", "vmware", "vmware.exe", "vmrun.exe"],
+    "virtualbox":     ["VBoxManage", "VBoxManage.exe", "vboxmanage"],
+    "libvirt":        ["virsh"],
+}
+
+
+DEFAULT_PROVIDER_SETTINGS = """\
+# Per-provider hypervisor binary directory.
+#
+# Only fill the entry for the provider you selected in cluster.yaml.
+# Other providers can stay empty — framework only checks the active one.
+#
+# Framework validates: directory exists + contains an expected binary
+# (vmware_desktop: vmrun / vmware*; virtualbox: VBoxManage*; libvirt: virsh),
+# then auto-prepends it to PATH for vagrant/ansible.
+#
+# How to find your path:
+#   shell> which vmrun        # or:  which VBoxManage  /  which virsh
+#   then take the directory name (everything before the last `/`).
+#
+# WSL note: the hypervisor lives on the Windows side, so the path is
+#           /mnt/<drive-letter>/<your-install-dir>.
+
+vmware_desktop:
+  bin_dir: ""
+virtualbox:
+  bin_dir: ""
+libvirt:
+  bin_dir: ""
+"""
+
+
+DEFAULT_PROXY_SETTINGS = """\
+# Network proxy. Leave all fields empty if you can reach the internet directly.
+#
+# Framework propagates these to:
+#   - vagrant (box download / metadata)
+#   - K3s install curl (master + worker)
+#   - docker daemon in master (SEED image build pull)
+#   - apt-get inside VMs
+#   - VM guest login shells (/etc/environment)
+#
+# Recommended setup for mihomo / clash users (simplest):
+#   1. In your mihomo / clash GUI, enable BOTH:
+#        - "TUN mode" / "增强模式" / "Enhanced mode"
+#        - "Allow LAN" / "局域网允许连接"
+#   2. Leave http/https/no_proxy below empty.
+#   With TUN active, the proxy transparently intercepts all host network
+#   traffic — INCLUDING the VM's traffic going through vmnet NAT. The
+#   framework also configures the VM's systemd-resolved (DNSSEC=off,
+#   public DNS) so mihomo's fake-ip responses are accepted. No proxy URL
+#   needs to be filled in here.
+#
+# Manual setup (no TUN — fall back to explicit proxy URL):
+#   Fill in http/https with your proxy's LAN-reachable address. You must
+#   also (a) make mihomo/clash bind to 0.0.0.0 (Allow-LAN), and (b) allow
+#   inbound to the proxy in your host firewall, otherwise the VM can't
+#   reach it.
+
+http: ""              # e.g. http://192.168.1.100:7890
+https: ""             # e.g. http://192.168.1.100:7890
+no_proxy: ""          # e.g. localhost,127.0.0.1,192.168.0.0/16
+
+# system_proxy: true means your host has a system-wide transparent proxy
+# (TUN mode / VPN / etc.) that intercepts ALL outbound traffic, including
+# vagrant VM traffic going through vmnet NAT. When true, framework:
+#   - disables the china_mirror flag (k3s/multus/cni go to canonical source)
+#   - clears registry.mirrors (docker daemon goes direct to docker.io/ghcr.io)
+# Set to true if mihomo / clash TUN mode is on. Mirrors are unreliable
+# (occasional blob 404s, CDN flakiness); canonical-via-proxy is steadier.
+system_proxy: false
+"""
+
+
+def ensure_proxy_settings(deps_file: Path) -> None:
+    """Auto-create proxy_settings.yaml with empty defaults on first run.
+    Proxy is optional (all empty == direct connect); we never die here —
+    only ensure the file exists so future runs can read it deterministically."""
+    settings_path = deps_file.parent / "proxy_settings.yaml"
+    if not settings_path.is_file():
+        settings_path.write_text(DEFAULT_PROXY_SETTINGS)
+        print(
+            f"[install_deps] created {settings_path} — edit it if you need a "
+            f"proxy (leave empty for direct connect)",
+            file=sys.stderr,
+        )
+
+
+def ensure_provider_settings(deps_file: Path, provider: str) -> tuple[str, list[str]]:
+    """Validate provider_settings.yaml exists + bin_dir for `provider` is
+    filled + that directory contains an expected binary. Auto-creates the
+    file from a template if missing. Returns (bin_dir, problems)."""
+    settings_path = deps_file.parent / "provider_settings.yaml"
+    problems: list[str] = []
+    expected = PROVIDER_BINARIES.get(provider, [])
+    expected_str = " / ".join(expected) if expected else "<binary>"
+
+    if not settings_path.is_file():
+        settings_path.write_text(DEFAULT_PROVIDER_SETTINGS)
+        problems.append(
+            f"created {settings_path} — please open it and fill "
+            f"'{provider}.bin_dir' with the directory containing {expected_str}, "
+            f"then re-run."
+        )
+        return "", problems
+
+    try:
+        ps = yaml.safe_load(settings_path.read_text()) or {}
+    except Exception as e:
+        problems.append(f"{settings_path}: parse error: {e}")
+        return "", problems
+
+    bin_dir = ((ps.get(provider) or {}).get("bin_dir", "") or "").strip()
+    if not bin_dir:
+        problems.append(
+            f"provider_settings.yaml: '{provider}.bin_dir' is empty. "
+            f"Fill it with the directory containing {expected_str}."
+        )
+        return "", problems
+
+    bin_path = Path(bin_dir)
+    if not bin_path.is_dir():
+        problems.append(
+            f"provider_settings.yaml '{provider}.bin_dir' = '{bin_dir}': "
+            f"not an existing directory."
+        )
+        return bin_dir, problems
+
+    if expected and not any((bin_path / b).exists() for b in expected):
+        problems.append(
+            f"provider_settings.yaml '{provider}.bin_dir' = '{bin_dir}': "
+            f"directory exists but contains none of the expected binaries "
+            f"({expected_str})."
+        )
+    return bin_dir, problems
+
+
 def check_mac_brew_packages(ensure: bool = False) -> list[str]:
     """SEED upstream / our framework rely on a few CLI tools that come
     pre-installed on Linux but not on macOS:
@@ -132,6 +289,30 @@ def check_mac_brew_packages(ensure: bool = False) -> list[str]:
     return problems
 
 
+def check_libvirt_iptables_backend() -> list[str]:
+    """Ubuntu 22.04+ defaults iptables to nf_tables backend, but libvirt's
+    network creation expects iptables-legacy. Without the switch, `vagrant up`
+    fails with `table 'filter' is incompatible, use 'nft' tool`.
+    Diagnose only — framework reports; user runs the fix."""
+    if detect_host() == "macos":
+        return []
+    iptables = shutil.which("iptables")
+    if iptables is None:
+        return []
+    try:
+        out = subprocess.run([iptables, "--version"], capture_output=True, text=True, check=False, timeout=5).stdout
+    except Exception:
+        return []
+    if "nf_tables" not in out:
+        return []  # already on legacy backend
+    return [
+        "iptables defaults to nf_tables but libvirt expects legacy — switch:\n"
+        "    sudo update-alternatives --set iptables /usr/sbin/iptables-legacy\n"
+        "    sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy\n"
+        "    sudo systemctl restart libvirtd"
+    ]
+
+
 def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list[str]:
     """Validate per-provider dependencies (plugins, files, apps, daemons).
     When ensure=True, attempt sudo launchctl/systemctl to start any
@@ -165,7 +346,11 @@ def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list
             problems.append(f"CLI missing: {cli}")
 
     # 3. file paths that must exist
+    host = detect_host()
     for f in pdeps.get("files") or []:
+        plats = f.get("platforms") or []
+        if plats and host not in plats:
+            continue
         path = f.get("path", "")
         if path and not Path(path).exists():
             problems.append(
@@ -182,6 +367,9 @@ def check_provider_deps(deps: dict, provider: str, ensure: bool = False) -> list
 
     # 5. daemons (probe + optional ensure)
     for d in pdeps.get("daemons") or []:
+        plats = d.get("platforms") or []
+        if plats and host not in plats:
+            continue
         name = d.get("name", "?")
         probe = d.get("probe", "")
         expected = str(d.get("expected", "")).strip()
@@ -266,8 +454,18 @@ def action_check(deps: dict, deps_file: Path) -> int:
         for p in mac_bash_problems:
             print(f"  - {p}", file=sys.stderr)
         rc = 1
+    ensure_proxy_settings(deps_file)
     provider = get_active_provider(deps_file)
+    if provider == "libvirt":
+        libvirt_problems = check_libvirt_iptables_backend()
+        if libvirt_problems:
+            for p in libvirt_problems:
+                print(f"[install_deps] libvirt: {p}", file=sys.stderr)
     if provider:
+        _, ps_problems = ensure_provider_settings(deps_file, provider)
+        if ps_problems:
+            print_provider_problems(provider, ps_problems)
+            rc = 1
         prov_problems = check_provider_deps(deps, provider, ensure=False)
         if prov_problems:
             print_provider_problems(provider, prov_problems)
@@ -281,42 +479,21 @@ def action_check(deps: dict, deps_file: Path) -> int:
     return rc
 
 
-def install_seed_requirements(deps_file: Path) -> int:
-    """If seed-emulator's own requirements.txt exists at the parent of
-    vagrant-deploy/, pip-install it. SEED's seedemu package imports a long
-    tail of 3rd-party libs (requests, geopy, eth_account, web3, ...) at
-    module load; rather than enumerate them individually we just install
-    upstream's pinned set."""
-    # deps_file = vagrant-deploy/configs/deps.yaml
-    # → vagrant-deploy/.. = seed-emulator/
-    seed_root = deps_file.parent.parent.parent
-    req = seed_root / "requirements.txt"
+def install_python_requirements(deps_file: Path) -> int:
+    """pip install -r vagrant-deploy/configs/requirements.txt — the complete
+    pinned dependency set (framework + SEED runtime)."""
+    req = deps_file.parent / "requirements.txt"
     if not req.is_file():
-        print(f"[install_deps] note: SEED requirements.txt not found at {req}; skipping", file=sys.stderr)
+        print(f"[install_deps] note: requirements.txt not found at {req}; skipping", file=sys.stderr)
         return 0
-    print(f"[install_deps] pip install -r {req} (SEED upstream deps)", file=sys.stderr)
+    print(f"[install_deps] pip install -r {req}", file=sys.stderr)
     base = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "-r", str(req)]
     ret = subprocess.run(base, check=False, capture_output=True, text=True)
     if ret.returncode != 0 and "externally-managed-environment" in (ret.stderr or ""):
         ret = subprocess.run(base + ["--break-system-packages"], check=False)
     elif ret.returncode != 0:
         sys.stderr.write(ret.stderr or "")
-    if ret.returncode != 0:
-        return ret.returncode
-    # Now apply our own framework requirements (vagrant-deploy/configs/
-    # requirements.txt). Listed AFTER SEED so newer pins (eg urllib3>=1.26
-    # vs SEED's 1.25.11 which is broken on Python 3.12) win.
-    own = deps_file.parent / "requirements.txt"
-    if own.is_file():
-        print(f"[install_deps] pip install -r {own} (framework deps + overrides)", file=sys.stderr)
-        upg = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "--upgrade", "-r", str(own)]
-        ret2 = subprocess.run(upg, check=False, capture_output=True, text=True)
-        if ret2.returncode != 0 and "externally-managed-environment" in (ret2.stderr or ""):
-            ret2 = subprocess.run(upg + ["--break-system-packages"], check=False)
-        elif ret2.returncode != 0:
-            sys.stderr.write(ret2.stderr or "")
-        return ret2.returncode
-    return 0
+    return ret.returncode
 
 
 def action_install(deps: dict, deps_file: Path) -> int:
@@ -341,11 +518,9 @@ def action_install(deps: dict, deps_file: Path) -> int:
         if ret.returncode != 0:
             print("[install_deps] pip install failed.", file=sys.stderr)
             return ret.returncode
-    # Also pip-install SEED upstream's own requirements.txt (long tail of
-    # 3rd-party deps imported by seedemu/* modules at load time).
-    rc = install_seed_requirements(deps_file)
+    rc = install_python_requirements(deps_file)
     if rc != 0:
-        print("[install_deps] pip install -r seed requirements.txt failed.", file=sys.stderr)
+        print("[install_deps] pip install -r requirements.txt failed.", file=sys.stderr)
         return rc
     cli_missing = check_cli(deps)
     if cli_missing:
@@ -361,8 +536,19 @@ def action_install(deps: dict, deps_file: Path) -> int:
         for p in mac_bash_problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
+    ensure_proxy_settings(deps_file)
     provider = get_active_provider(deps_file)
+    if provider == "libvirt":
+        libvirt_problems = check_libvirt_iptables_backend()
+        if libvirt_problems:
+            for p in libvirt_problems:
+                print(f"[install_deps] libvirt: {p}", file=sys.stderr)
+            return 1
     if provider:
+        _, ps_problems = ensure_provider_settings(deps_file, provider)
+        if ps_problems:
+            print_provider_problems(provider, ps_problems)
+            return 1
         prov_problems = check_provider_deps(deps, provider, ensure=True)
         if prov_problems:
             print_provider_problems(provider, prov_problems)

@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-04-08T01:37:46.662957+00:00",
+  "namespace": "seedemu",
+  "targets": 9,
+  "kernel_export_mode": "all",
+  "status": "PASS",
+  "failure_reason": "",
+  "strategy": "node-aware-concurrency",
+  "duration_seconds": 27.923,
+  "processed": 9,
+  "failures": []
+}

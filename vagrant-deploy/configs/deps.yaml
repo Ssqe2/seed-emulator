@@ -55,19 +55,18 @@ provider_dependencies:
     vagrant_plugins:
       - vagrant-vmware-desktop
     files:
+      # Skipped on WSL: the helper daemon lives on the Windows host (where
+      # VMware Workstation actually runs); the Linux side has no cert to
+      # check. Mac and native Linux both install Hashicorp's utility under
+      # /opt/vagrant-vmware-desktop/.
       - path: /opt/vagrant-vmware-desktop/certificates/vagrant-utility.client.crt
+        platforms: [macos, linux_native]
         purpose: "Vagrant VMware Utility (helper daemon plugin uses to talk to Fusion/Workstation)"
         install_hint: "Mac: brew install --cask vagrant-vmware-utility | other: download .pkg from https://developer.hashicorp.com/vagrant/install/vmware"
-    apps:
-      - paths:
-          - /Applications/VMware Fusion.app
-          - /mnt/c/Program Files (x86)/VMware/VMware Workstation/vmware.exe
-          - /mnt/d/vmware/vmware.exe
-          - /usr/bin/vmware
-        purpose: "VMware Fusion (Mac) or VMware Workstation (Win/Linux)"
-        install_hint: "Mac: brew install --cask vmware-fusion | Win/Linux: https://www.vmware.com/products/workstation"
     daemons:
+      # WSL skip rationale: see `files` block above.
       - name: vagrant-vmware-utility
+        platforms: [macos, linux_native]
         # vagrant-vmware-utility uses mTLS. We don't care which HTTP code the
         # endpoint returns (some versions answer 200, others 403 for /status);
         # what matters is that the TCP+TLS handshake succeeded — which means
@@ -82,22 +81,9 @@ provider_dependencies:
         ensure_linux: "sudo systemctl start vagrant-vmware-utility"
   virtualbox:
     vagrant_plugins: []      # provider built into vagrant
-    cli:
-      - vboxmanage
-    apps:
-      - paths:
-          - /mnt/c/Program Files/Oracle/VirtualBox/VirtualBox.exe
-          - /Applications/VirtualBox.app
-          - /usr/bin/VirtualBox
-        purpose: "VirtualBox"
-        install_hint: "https://www.virtualbox.org/wiki/Downloads (Mac: brew install --cask virtualbox)"
+    # vboxmanage is validated via provider_settings.yaml bin_dir, not via PATH check
+    # (WSL users have it on the Windows side, not in WSL PATH).
   libvirt:
     vagrant_plugins:
       - vagrant-libvirt
-    cli:
-      - virsh
-    apps:
-      - paths:
-          - /usr/bin/qemu-system-x86_64
-        purpose: "QEMU/KVM (libvirt provider)"
-        install_hint: "sudo apt install qemu-kvm libvirt-daemon-system"
+    # virsh is validated via provider_settings.yaml bin_dir.

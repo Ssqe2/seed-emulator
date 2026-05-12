@@ -1,0 +1,99 @@
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-3-net0
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-3-net1
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-3-net2
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-150-net0
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-151-net0
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-152-net0
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-ix-ix100
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: net-ix-ix101
+  namespace: seedemu
+spec:
+  config: '{"cniVersion": "0.3.1", "type": "macvlan", "master": "enp0s3", "mode": "bridge", "ipam": {"type": "static"}}'
+
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as3brd-r1-10-3-0-254", "namespace": "seedemu", "labels": {"app": "as3brd-r1-10-3-0-254", "seedemu.io/asn": "3", "seedemu.io/role": "brd", "seedemu.io/name": "r1", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as3brd-r1-10-3-0-254"}}, "template": {"metadata": {"labels": {"app": "as3brd-r1-10-3-0-254", "seedemu.io/asn": "3", "seedemu.io/role": "brd", "seedemu.io/name": "r1", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-3-net0\", \"ips\": [\"10.3.0.254/24\"]}, {\"name\": \"net-ix-ix100\", \"ips\": [\"10.100.0.3/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/brdnode_3_r1:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as3brd-r1-10-3-0-254"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as3r-r2-10-3-0-253", "namespace": "seedemu", "labels": {"app": "as3r-r2-10-3-0-253", "seedemu.io/asn": "3", "seedemu.io/role": "r", "seedemu.io/name": "r2", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as3r-r2-10-3-0-253"}}, "template": {"metadata": {"labels": {"app": "as3r-r2-10-3-0-253", "seedemu.io/asn": "3", "seedemu.io/role": "r", "seedemu.io/name": "r2", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-3-net0\", \"ips\": [\"10.3.0.253/24\"]}, {\"name\": \"net-3-net1\", \"ips\": [\"10.3.1.254/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/rnode_3_r2:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as3r-r2-10-3-0-253"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as3r-r3-10-3-1-253", "namespace": "seedemu", "labels": {"app": "as3r-r3-10-3-1-253", "seedemu.io/asn": "3", "seedemu.io/role": "r", "seedemu.io/name": "r3", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as3r-r3-10-3-1-253"}}, "template": {"metadata": {"labels": {"app": "as3r-r3-10-3-1-253", "seedemu.io/asn": "3", "seedemu.io/role": "r", "seedemu.io/name": "r3", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-3-net1\", \"ips\": [\"10.3.1.253/24\"]}, {\"name\": \"net-3-net2\", \"ips\": [\"10.3.2.254/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/rnode_3_r3:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as3r-r3-10-3-1-253"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as3brd-r4-10-3-2-253", "namespace": "seedemu", "labels": {"app": "as3brd-r4-10-3-2-253", "seedemu.io/asn": "3", "seedemu.io/role": "brd", "seedemu.io/name": "r4", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as3brd-r4-10-3-2-253"}}, "template": {"metadata": {"labels": {"app": "as3brd-r4-10-3-2-253", "seedemu.io/asn": "3", "seedemu.io/role": "brd", "seedemu.io/name": "r4", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-3-net2\", \"ips\": [\"10.3.2.253/24\"]}, {\"name\": \"net-ix-ix101\", \"ips\": [\"10.101.0.3/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/brdnode_3_r4:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as3brd-r4-10-3-2-253"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as150h-web-10-150-0-71", "namespace": "seedemu", "labels": {"app": "as150h-web-10-150-0-71", "seedemu.io/asn": "150", "seedemu.io/role": "h", "seedemu.io/name": "web", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as150h-web-10-150-0-71"}}, "template": {"metadata": {"labels": {"app": "as150h-web-10-150-0-71", "seedemu.io/asn": "150", "seedemu.io/role": "h", "seedemu.io/name": "web", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-150-net0\", \"ips\": [\"10.150.0.71/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/hnode_150_web:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as150h-web-10-150-0-71"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as150h-dns-10-150-0-72", "namespace": "seedemu", "labels": {"app": "as150h-dns-10-150-0-72", "seedemu.io/asn": "150", "seedemu.io/role": "h", "seedemu.io/name": "dns", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as150h-dns-10-150-0-72"}}, "template": {"metadata": {"labels": {"app": "as150h-dns-10-150-0-72", "seedemu.io/asn": "150", "seedemu.io/role": "h", "seedemu.io/name": "dns", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-150-net0\", \"ips\": [\"10.150.0.72/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/hnode_150_dns:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as150h-dns-10-150-0-72"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as150brd-router0-10-150-0-254", "namespace": "seedemu", "labels": {"app": "as150brd-router0-10-150-0-254", "seedemu.io/asn": "150", "seedemu.io/role": "brd", "seedemu.io/name": "router0", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as150brd-router0-10-150-0-254"}}, "template": {"metadata": {"labels": {"app": "as150brd-router0-10-150-0-254", "seedemu.io/asn": "150", "seedemu.io/role": "brd", "seedemu.io/name": "router0", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-150-net0\", \"ips\": [\"10.150.0.254/24\"]}, {\"name\": \"net-ix-ix100\", \"ips\": [\"10.100.0.150/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/brdnode_150_router0:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as150brd-router0-10-150-0-254"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as151h-web-10-151-0-71", "namespace": "seedemu", "labels": {"app": "as151h-web-10-151-0-71", "seedemu.io/asn": "151", "seedemu.io/role": "h", "seedemu.io/name": "web", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as151h-web-10-151-0-71"}}, "template": {"metadata": {"labels": {"app": "as151h-web-10-151-0-71", "seedemu.io/asn": "151", "seedemu.io/role": "h", "seedemu.io/name": "web", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-151-net0\", \"ips\": [\"10.151.0.71/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/hnode_151_web:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as151h-web-10-151-0-71"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as151h-dns-10-151-0-72", "namespace": "seedemu", "labels": {"app": "as151h-dns-10-151-0-72", "seedemu.io/asn": "151", "seedemu.io/role": "h", "seedemu.io/name": "dns", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as151h-dns-10-151-0-72"}}, "template": {"metadata": {"labels": {"app": "as151h-dns-10-151-0-72", "seedemu.io/asn": "151", "seedemu.io/role": "h", "seedemu.io/name": "dns", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-151-net0\", \"ips\": [\"10.151.0.72/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/hnode_151_dns:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as151h-dns-10-151-0-72"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as151brd-router0-10-151-0-254", "namespace": "seedemu", "labels": {"app": "as151brd-router0-10-151-0-254", "seedemu.io/asn": "151", "seedemu.io/role": "brd", "seedemu.io/name": "router0", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as151brd-router0-10-151-0-254"}}, "template": {"metadata": {"labels": {"app": "as151brd-router0-10-151-0-254", "seedemu.io/asn": "151", "seedemu.io/role": "brd", "seedemu.io/name": "router0", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-151-net0\", \"ips\": [\"10.151.0.254/24\"]}, {\"name\": \"net-ix-ix101\", \"ips\": [\"10.101.0.151/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/brdnode_151_router0:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as151brd-router0-10-151-0-254"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as152h-web-10-152-0-71", "namespace": "seedemu", "labels": {"app": "as152h-web-10-152-0-71", "seedemu.io/asn": "152", "seedemu.io/role": "h", "seedemu.io/name": "web", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as152h-web-10-152-0-71"}}, "template": {"metadata": {"labels": {"app": "as152h-web-10-152-0-71", "seedemu.io/asn": "152", "seedemu.io/role": "h", "seedemu.io/name": "web", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-152-net0\", \"ips\": [\"10.152.0.71/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/hnode_152_web:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as152h-web-10-152-0-71"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as152brd-router0-10-152-0-254", "namespace": "seedemu", "labels": {"app": "as152brd-router0-10-152-0-254", "seedemu.io/asn": "152", "seedemu.io/role": "brd", "seedemu.io/name": "router0", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as152brd-router0-10-152-0-254"}}, "template": {"metadata": {"labels": {"app": "as152brd-router0-10-152-0-254", "seedemu.io/asn": "152", "seedemu.io/role": "brd", "seedemu.io/name": "router0", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-152-net0\", \"ips\": [\"10.152.0.254/24\"]}, {\"name\": \"net-ix-ix101\", \"ips\": [\"10.101.0.152/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/brdnode_152_router0:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as152brd-router0-10-152-0-254"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as100brd-ix100-10-100-0-100", "namespace": "seedemu", "labels": {"app": "as100brd-ix100-10-100-0-100", "seedemu.io/asn": "100", "seedemu.io/role": "brd", "seedemu.io/name": "ix100", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as100brd-ix100-10-100-0-100"}}, "template": {"metadata": {"labels": {"app": "as100brd-ix100-10-100-0-100", "seedemu.io/asn": "100", "seedemu.io/role": "brd", "seedemu.io/name": "ix100", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-ix-ix100\", \"ips\": [\"10.100.0.100/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/rs_ix_ix100:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as100brd-ix100-10-100-0-100"}], "volumeMounts": []}]}}}}
+---
+{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "as101brd-ix101-10-101-0-101", "namespace": "seedemu", "labels": {"app": "as101brd-ix101-10-101-0-101", "seedemu.io/asn": "101", "seedemu.io/role": "brd", "seedemu.io/name": "ix101", "seedemu.io/workload": "seedemu"}}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "as101brd-ix101-10-101-0-101"}}, "template": {"metadata": {"labels": {"app": "as101brd-ix101-10-101-0-101", "seedemu.io/asn": "101", "seedemu.io/role": "brd", "seedemu.io/name": "ix101", "seedemu.io/workload": "seedemu"}, "annotations": {"k8s.v1.cni.cncf.io/networks": "[{\"name\": \"net-ix-ix101\", \"ips\": [\"10.101.0.101/24\"]}]"}}, "spec": {"containers": [{"name": "main", "image": "192.168.2.152:30500/rs_ix_ix101:latest", "imagePullPolicy": "Always", "securityContext": {"privileged": true, "capabilities": {"add": ["ALL"]}}, "command": ["/start.sh"], "env": [{"name": "CONTAINER_NAME", "value": "as101brd-ix101-10-101-0-101"}], "volumeMounts": []}]}}}}

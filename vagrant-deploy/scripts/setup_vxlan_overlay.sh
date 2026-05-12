@@ -12,7 +12,7 @@
 #    "peer_ips":["192.168.77.10",...], "networks":[{"key":"...","vni":1000},...]}
 #
 # Why on host instead of K8s DaemonSet?
-#   - 0 image dependency (no nicolaka/netshoot image preload chain)
+#   - 0 image dependency (no nicolaka/netshoot or any other image to pull)
 #   - 0 in-cluster CNI side-effects
 #   - matches PR-E pre-step style (modprobe vxlan + sysctls in ansible)
 #   - vagrant cluster has no "node restart" elasticity needs anyway —

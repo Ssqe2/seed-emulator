@@ -1,0 +1,48 @@
+#!/bin/bash
+# K8s Interface Rename Script (SEED Emulator)
+# Renames Multus interfaces to SEED topology names using IP matching.
+
+set -euo pipefail
+
+# Phase 1: rename all to temporary names to avoid conflicts
+ip link set net1 down
+ip link set net1 name tmp_net1
+ip link set tmp_net1 up
+ip link set net2 down
+ip link set net2 name tmp_net2
+ip link set tmp_net2 up
+
+# Phase 2: rename from temporary names to final SEED names
+ip link set tmp_net1 down
+ip link set tmp_net1 name net2
+ip link set net2 up
+ip link set tmp_net2 down
+ip link set tmp_net2 name ix101
+ip link set ix101 up
+
+# Apply traffic control settings from ifinfo.txt
+cidr_to_net() {
+    ipcalc -n "$1" | sed -E -n 's/^Network: +([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,2}) +.*/\1/p'
+}
+
+# Configure tc for net2
+line=$(grep -m1 '^net2:' /ifinfo.txt 2>/dev/null || true)
+if [ -n "$line" ]; then
+    latency=$(echo "$line" | cut -d: -f3)
+    bw=$(echo "$line" | cut -d: -f4)
+    loss=$(echo "$line" | cut -d: -f5)
+    [ "$bw" = 0 ] && bw=1000000000000
+    tc qdisc add dev net2 root handle 1:0 tbf rate "${bw}bit" buffer 1000000 limit 1000 || true
+    tc qdisc add dev net2 parent 1:0 handle 10: netem delay "${latency}ms" loss "${loss}%" || true
+fi
+# Configure tc for ix101
+line=$(grep -m1 '^ix101:' /ifinfo.txt 2>/dev/null || true)
+if [ -n "$line" ]; then
+    latency=$(echo "$line" | cut -d: -f3)
+    bw=$(echo "$line" | cut -d: -f4)
+    loss=$(echo "$line" | cut -d: -f5)
+    [ "$bw" = 0 ] && bw=1000000000000
+    tc qdisc add dev ix101 root handle 1:0 tbf rate "${bw}bit" buffer 1000000 limit 1000 || true
+    tc qdisc add dev ix101 parent 1:0 handle 10: netem delay "${latency}ms" loss "${loss}%" || true
+fi
+

@@ -1,0 +1,14 @@
+192.168.2.152:30500/brdnode_3_r1:latest
+192.168.2.152:30500/rnode_3_r2:latest
+192.168.2.152:30500/rnode_3_r3:latest
+192.168.2.152:30500/brdnode_3_r4:latest
+192.168.2.152:30500/hnode_150_web:latest
+192.168.2.152:30500/hnode_150_dns:latest
+192.168.2.152:30500/brdnode_150_router0:latest
+192.168.2.152:30500/hnode_151_web:latest
+192.168.2.152:30500/hnode_151_dns:latest
+192.168.2.152:30500/brdnode_151_router0:latest
+192.168.2.152:30500/hnode_152_web:latest
+192.168.2.152:30500/brdnode_152_router0:latest
+192.168.2.152:30500/rs_ix_ix100:latest
+192.168.2.152:30500/rs_ix_ix101:latest

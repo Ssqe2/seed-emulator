@@ -30,9 +30,11 @@ import yaml
 CUSTOM_KEY = "custom"
 
 
-def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
+def build_profile_block(topology_abspath: Path, deploy: dict, k3s: dict) -> dict:
     sched = deploy.get("scheduling") or {}
-    cni = deploy.get("cni") or {}
+    # cni.type lives in k3s.yaml (single source of truth shared with ansible);
+    # see scripts/gen_deploy_env.py docstring for the rationale.
+    cni = k3s.get("cni") or {}
     return {
         "profile_id": CUSTOM_KEY,
         "support_tier": "tier3",
@@ -54,6 +56,8 @@ def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--deploy",  required=True, type=Path)
+    p.add_argument("--k3s",     required=True, type=Path,
+                   help="configs/k3s.yaml (provides cni.type)")
     p.add_argument("--profile-yaml", required=True, type=Path,
                    help="Upstream seed_k8s_profiles.yaml")
     p.add_argument("--repo-root", required=True, type=Path,
@@ -61,6 +65,7 @@ def main() -> int:
     args = p.parse_args()
 
     deploy = yaml.safe_load(args.deploy.read_text()) or {}
+    k3s = yaml.safe_load(args.k3s.read_text()) or {}
     profile_name = (deploy.get("profile") or "").strip()
     topo_raw = (deploy.get("topology_file") or "").strip()
 
@@ -80,7 +85,7 @@ def main() -> int:
         if not topo_abs.exists():
             print(f"ERROR: topology_file not found: {topo_abs}", file=sys.stderr)
             return 1
-        profiles_doc["profiles"][CUSTOM_KEY] = build_profile_block(topo_abs, deploy)
+        profiles_doc["profiles"][CUSTOM_KEY] = build_profile_block(topo_abs, deploy, k3s)
         action = f"injected -> compile_script={topo_abs}"
     else:
         # Remove a stale 'custom' profile so the catalog stays clean.

@@ -28,28 +28,10 @@ log()  { echo "[seed_vagrant] $*"; }
 warn() { echo "[seed_vagrant] WARN: $*" >&2; }
 die()  { echo "[seed_vagrant] ERROR: $*" >&2; exit 1; }
 
-# ============================================================================
-# Load environment config
-# Each user declares their environment in configs/env.sh (gitignored).
-# See configs/env.sh.example for a template.
-# ============================================================================
-
-ENV_FILE="${SCRIPT_DIR}/../configs/env.sh"
-if [[ -f "${ENV_FILE}" ]]; then
-  # shellcheck source=/dev/null
-  source "${ENV_FILE}"
-fi
-
-# Fail fast when running on WSL but required env is missing.
-# WSL users must configure configs/env.sh to bridge to Windows hypervisors.
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  if [[ -z "${VAGRANT_WSL_ENABLE_WINDOWS_ACCESS:-}" ]]; then
-    die "Running on WSL but VAGRANT_WSL_ENABLE_WINDOWS_ACCESS is not set.
-Did you copy configs/env.sh.example to configs/env.sh and edit it?
-  cp configs/env.sh.example configs/env.sh
-  # then uncomment the WSL section inside"
-  fi
-fi
+# Load local env (WSL detect, hypervisor bin_dir, proxy) — all from
+# declarative configs/{provider,proxy}_settings.yaml. No shell-style env.sh.
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/load_provider_path.sh"
 
 usage() {
   cat <<'EOF'
@@ -207,7 +189,11 @@ with open(vagrantfile_path, "w") as vf:
 
         # VirtualBox provider
         vf.write(f'    n.vm.provider "virtualbox" do |vb|\n')
-        vf.write(f'      vb.name = "seedemu-{name}"\n')
+        # No explicit vb.name — let vagrant generate a unique name (with hash
+        # suffix) each cycle. Hardcoding `seedemu-{name}` causes "directory
+        # already exists" collisions on Windows when previous test cycles left
+        # orphan VM directories in `VirtualBox VMs/`. Vagrant tracks the VM by
+        # internal UUID via `.vagrant/`, not by display name.
         vf.write(f'      vb.cpus = {cpus}\n')
         vf.write(f'      vb.memory = {memory}\n')
         vf.write(f'      # Fix /dev/null issue on Windows/WSL\n')
@@ -329,16 +315,19 @@ action_up() {
   # Without this, anything that runs under scripts/ssh-wrapper.sh (or
   # vanilla ssh -F vagrant_ssh_config) hitting a private cluster IP times out
   # because the controller (e.g. WSL) can't reach the VMware private network.
-  python3 - "${REPO_ROOT}/output/vagrant_ssh_config" "${CLUSTER_CONFIG}" <<'PY'
+  python3 - "${REPO_ROOT}/output/vagrant_ssh_config" "${CLUSTER_CONFIG}" "${SCRIPT_DIR}" <<'PY'
 import sys, yaml, re
 
-cfg_path, cluster_path = sys.argv[1], sys.argv[2]
+cfg_path, cluster_path, script_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, script_dir)
+from normalize_cluster import normalize_cluster
+
 text = open(cfg_path).read()
 # Strip any previous aliases we appended (idempotent regeneration).
 text = re.sub(r"\n# >>> seed_vagrant IP aliases.*?# <<< seed_vagrant IP aliases\n", "\n", text, flags=re.DOTALL)
 
 with open(cluster_path) as f:
-    cluster = yaml.safe_load(f) or {}
+    cluster = normalize_cluster(yaml.safe_load(f) or {})
 nodes = [n for n in cluster.get("nodes") or [] if n.get("ip")]
 
 def block_for(name: str) -> str:
@@ -361,20 +350,37 @@ PY
   log "Verifying SSH connectivity..."
   local nodes
   nodes="$(python3 -c "
-import yaml, sys
+import sys, yaml
+sys.path.insert(0, '${SCRIPT_DIR}')
+from normalize_cluster import normalize_cluster
 with open('${CLUSTER_CONFIG}') as f:
-    for node in yaml.safe_load(f).get('nodes', []):
-        print(node['name'])
+    cfg = normalize_cluster(yaml.safe_load(f) or {})
+for node in cfg.get('nodes', []):
+    print(node['name'])
 ")"
 
   local ssh_cfg="${REPO_ROOT}/output/vagrant_ssh_config"
   local all_ok=true
   local failed=()
+  # Retry per node: vagrant's "Machine booted and ready!" fires when SSH TCP
+  # is up, but sshd may still be in cloud-init handoff and not yet answering
+  # the banner. Master in particular is often a few seconds behind workers.
+  # 6 attempts × (10s ConnectTimeout + 5s sleep) ≈ 90s grace per slow node;
+  # fast nodes succeed on attempt 1 and pay no extra time.
   for node in ${nodes}; do
-    if ssh -F "${ssh_cfg}" -o ConnectTimeout=10 -o BatchMode=yes "${node}" hostname &>/dev/null; then
+    local ok=false
+    local attempt
+    for attempt in 1 2 3 4 5 6; do
+      if ssh -F "${ssh_cfg}" -o ConnectTimeout=10 -o BatchMode=yes "${node}" hostname &>/dev/null; then
+        ok=true
+        break
+      fi
+      sleep 5
+    done
+    if [[ "${ok}" == "true" ]]; then
       log "  ${node}: OK"
     else
-      warn "  ${node}: SSH failed"
+      warn "  ${node}: SSH failed (after 6 retries)"
       all_ok=false
       failed+=("${node}")
     fi
@@ -392,13 +398,95 @@ with open('${CLUSTER_CONFIG}') as f:
 
 action_down() {
   cd "${REPO_ROOT}"
+
+  # 1. Kill stuck vagrant / hypervisor CLI we previously spawned — otherwise
+  # vagrant destroy hangs waiting for an already-dead session, and the next
+  # `up` reads stale UUIDs that confuse the hypervisor NAT engine.
+  pkill -9 -f "ruby.*vagrant" 2>/dev/null || true
+  pkill -9 -f vmrun.exe       2>/dev/null || true
+  pkill -9 -f VBoxManage.exe  2>/dev/null || true
+
+  # 2. Graceful vagrant destroy — lets the hypervisor utility release its
+  # own NAT-engine port-forward entries in sync with vagrant's machine state.
+  # Errors logged but don't abort: we still want the cleanup steps below.
   if [[ -f "${VAGRANTFILE}" ]]; then
-    log "Destroying VMs..."
-    vagrant destroy -f
-    log "VMs destroyed"
+    log "Destroying VMs (vagrant destroy)..."
+    vagrant destroy -f 2>&1 | tail -20 || warn "vagrant destroy hit errors — continuing cleanup"
   else
-    warn "No Vagrantfile found"
+    warn "No Vagrantfile — skipping vagrant destroy"
   fi
+
+  # 3. Hypervisor-side orphan cleanup (best-effort, only our namespace).
+  # Catches leftovers from earlier crashed sessions — never touches the
+  # user's other VMs. Wrapped with `|| true` because timeouts (set when the
+  # hypervisor utility daemon is unreachable, e.g. TUN proxy hijacks 127.0.0.1)
+  # return non-zero through the pipeline and would otherwise trip `set -e`.
+  cleanup_provider_orphans || true
+
+  # 4. Framework state — forces next `up` to start with fresh machine UUIDs
+  # so the hypervisor NAT engine builds a clean port-forward table. Box cache
+  # is left intact (install artifact, not stale state) — saves 600 MB re-download.
+  rm -rf "${REPO_ROOT}/.vagrant" "${REPO_ROOT}/output" || true
+
+  log "Down complete — framework state cleared, hypervisor orphans cleaned, box cache kept."
+}
+
+cleanup_provider_orphans() {
+  # Dispatch by cluster.yaml provider field. Each helper is no-op if the
+  # corresponding hypervisor CLI isn't installed.
+  local provider
+  provider="$(get_config_value provider 2>/dev/null || true)"
+  case "${provider}" in
+    virtualbox)     _cleanup_vbox_namespace ;;
+    vmware_desktop) _cleanup_vmware_namespace ;;
+    libvirt)        _cleanup_libvirt_namespace ;;
+  esac
+}
+
+_cleanup_vbox_namespace() {
+  # Find any registered VMs whose display name starts with `seedemu-`
+  # (legacy hardcoded prefix from the pre-unique-name era) and force-delete
+  # them via VBoxManage. Never touches user's other VBox VMs.
+  # Each VBoxManage call is timeout-wrapped because mihomo TUN can hijack
+  # 127.0.0.1 → daemon unreachable → call hangs forever otherwise.
+  local vbox
+  vbox="$(command -v VBoxManage 2>/dev/null || command -v VBoxManage.exe 2>/dev/null || true)"
+  [[ -z "${vbox}" ]] && return 0
+  timeout 15 "${vbox}" list vms 2>/dev/null | grep -oE '"seedemu-[^"]+"' | tr -d '"' | while read -r vm; do
+    [[ -z "${vm}" ]] && continue
+    log "vbox orphan: unregistervm --delete ${vm}"
+    timeout 30 "${vbox}" unregistervm "${vm}" --delete 2>/dev/null || true
+  done
+}
+
+_cleanup_vmware_namespace() {
+  # vmrun lists running VMs by full .vmx path. Match by our project's REPO_ROOT
+  # so we only stop/delete VMs that belong to this repo's .vagrant tree.
+  # vmrun talks to the vagrant-vmware-utility daemon over 127.0.0.1:9922; if a
+  # local TUN proxy is active and hijacks 127.0.0.1, the call hangs forever.
+  # Wrap with timeout so cleanup never blocks the rest of `down`.
+  local vmrun_bin
+  vmrun_bin="$(command -v vmrun 2>/dev/null || command -v vmrun.exe 2>/dev/null || true)"
+  [[ -z "${vmrun_bin}" ]] && return 0
+  timeout 15 "${vmrun_bin}" -T ws list 2>/dev/null | tail -n +2 | grep -F "${REPO_ROOT}" | while read -r vmx; do
+    [[ -z "${vmx}" ]] && continue
+    log "vmware orphan: stop + deleteVM ${vmx}"
+    timeout 30 "${vmrun_bin}" -T ws stop "${vmx}" hard 2>/dev/null || true
+    timeout 30 "${vmrun_bin}" -T ws deleteVM "${vmx}" 2>/dev/null || true
+  done
+}
+
+_cleanup_libvirt_namespace() {
+  # Match `seedemu-` prefix only — leaves user's other libvirt domains alone.
+  local virsh_bin
+  virsh_bin="$(command -v virsh 2>/dev/null || true)"
+  [[ -z "${virsh_bin}" ]] && return 0
+  timeout 15 "${virsh_bin}" list --all --name 2>/dev/null | grep -E '^seedemu-' | while read -r dom; do
+    [[ -z "${dom}" ]] && continue
+    log "libvirt orphan: destroy + undefine ${dom}"
+    timeout 30 "${virsh_bin}" destroy "${dom}" 2>/dev/null || true
+    timeout 30 "${virsh_bin}" undefine "${dom}" 2>/dev/null || true
+  done
 }
 
 action_status() {

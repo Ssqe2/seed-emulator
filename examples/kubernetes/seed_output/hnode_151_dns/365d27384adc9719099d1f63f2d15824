@@ -1,0 +1,3 @@
+export NOPRECMD=1
+alias st=set_title
+

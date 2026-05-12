@@ -34,10 +34,61 @@
         flannel_iface: "{{ iface_lookup.stdout }}"
 
 # -----------------------------------------------------------------------------
+# Step 0.5 : propagate proxy from controller to every VM's /etc/environment so
+# user shells / curl / wget / git on the VM all honour it transparently. Empty
+# proxy (direct-connect users) → task skipped via the `when:` guard.
+# -----------------------------------------------------------------------------
+- name: Configure proxy + DNS on all hosts
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Set proxy env in /etc/environment
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        state: present
+      loop:
+        - { key: HTTP_PROXY,  value: "{{ proxy_http }}" }
+        - { key: HTTPS_PROXY, value: "{{ proxy_https }}" }
+        - { key: NO_PROXY,    value: "{{ proxy_no_proxy }}" }
+        - { key: http_proxy,  value: "{{ proxy_http }}" }
+        - { key: https_proxy, value: "{{ proxy_https }}" }
+        - { key: no_proxy,    value: "{{ proxy_no_proxy }}" }
+      when: (proxy_https | length > 0) or (proxy_http | length > 0)
+
+    # The VM ships with systemd-resolved DNSSEC=yes + vmnet stub upstream.
+    # When the host uses mihomo / clash TUN-mode (which the VM's traffic
+    # transparently passes through), the proxy returns fake-ip DNS responses
+    # that aren't DNSSEC-signed → resolver rejects them → "Could not resolve
+    # host". Replace resolved.conf so:
+    #   * DNSSEC is off (so fake-ip is accepted)
+    #   * DNS upstreams are public resolvers (so queries hit TUN instead of
+    #     getting trapped in the vmnet DNS stub)
+    # Always applied — harmless when no TUN is in use (DNSSEC isn't strictly
+    # required for our use case, and 1.1.1.1/223.5.5.5 are universally reachable).
+    - name: Configure systemd-resolved (DNSSEC off + public DNS)
+      ansible.builtin.copy:
+        dest: /etc/systemd/resolved.conf
+        mode: "0644"
+        content: |
+          [Resolve]
+          DNSSEC=no
+          DNS=223.5.5.5 1.1.1.1
+          FallbackDNS=119.29.29.29 8.8.8.8
+
+    - name: Restart systemd-resolved to pick up new config
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+
+# -----------------------------------------------------------------------------
 # Step 1 : install K3s server on the master
 # -----------------------------------------------------------------------------
 - name: Install K3s server on master
   hosts: master
+  environment: "{{ http_proxy_env }}"
   gather_facts: false
   become: true
   tasks:
@@ -129,6 +180,7 @@
 # -----------------------------------------------------------------------------
 - name: Install K3s agent on workers
   hosts: workers
+  environment: "{{ http_proxy_env }}"
   gather_facts: false
   become: true
   vars:
@@ -293,6 +345,7 @@
 # -----------------------------------------------------------------------------
 - name: Install Multus CNI
   hosts: master
+  environment: "{{ http_proxy_env }}"
   gather_facts: false
   become: true
   tasks:
@@ -313,6 +366,11 @@
         dest: /tmp/multus-daemonset.yml
         mode: "0644"
         force: true
+        timeout: 30
+      retries: 3
+      delay: 10
+      register: multus_dl
+      until: multus_dl is succeeded
       when: multus_ds.rc != 0
 
     - name: Patch Multus manifest (kubeconfig path)
@@ -380,6 +438,7 @@
 # -----------------------------------------------------------------------------
 - name: Install extra CNI plugins (macvlan / ipvlan / static)
   hosts: all
+  environment: "{{ http_proxy_env }}"
   gather_facts: false
   become: true
   vars:
@@ -468,6 +527,7 @@
 # -----------------------------------------------------------------------------
 - name: Install Docker and start the private registry on master
   hosts: master
+  environment: "{{ http_proxy_env }}"
   gather_facts: false
   become: true
   tasks:
@@ -566,10 +626,43 @@
         docker_daemon_config:
           registry-mirrors: "{{ docker_daemon_mirrors }}"
           # Local registry serves over plain HTTP — Docker would otherwise
-          # refuse to push (`layer Unavailable`).  Listing it here is required
-          # for the preload step that follows.
+          # refuse to push (`layer Unavailable`).  Listing all three
+          # endpoints (master IP / 127.0.0.1 / localhost) here lets SEED's
+          # `seed_run.sh build` push freshly-built router/host images via
+          # whichever loopback name the build_images.sh shim chooses, AND
+          # avoids a later `systemctl restart docker` from
+          # build_images.sh::ensure_docker_daemon_config — that restart
+          # used to take the registry container down for several seconds,
+          # making the very first build push see "connection refused"
+          # before retrying.
           insecure-registries:
             - "{{ registry_host }}:{{ registry_port }}"
+            - "127.0.0.1:{{ registry_port }}"
+            - "localhost:{{ registry_port }}"
+      notify: restart docker
+
+    # If the user configured a proxy in configs/proxy_settings.yaml, write it
+    # into docker daemon's systemd drop-in. Without this, `docker pull` for
+    # SEED image build (base layers like ubuntu:22.04) ignores
+    # HTTP_PROXY/HTTPS_PROXY (dockerd is its own systemd service and doesn't
+    # inherit shell env). Skipped when proxy is empty.
+    - name: Ensure docker systemd drop-in dir exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/docker.service.d
+        state: directory
+        mode: "0755"
+      when: (proxy_https | length > 0) or (proxy_http | length > 0)
+
+    - name: Configure docker daemon proxy
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/docker.service.d/http-proxy.conf
+        mode: "0644"
+        content: |
+          [Service]
+          Environment="HTTP_PROXY={{ proxy_http }}"
+          Environment="HTTPS_PROXY={{ proxy_https }}"
+          Environment="NO_PROXY={{ proxy_no_proxy }}"
+      when: (proxy_https | length > 0) or (proxy_http | length > 0)
       notify: restart docker
 
     - name: Force handler flush so Docker restarts before we start the registry
@@ -602,40 +695,6 @@
       retries: 15
       delay: 2
       until: registry_probe.status == 200
-
-    # Preload system images (declared in k3s.yaml::registry.preload_images) so
-    # that workers fetch them from the in-cluster registry over the LAN, not
-    # from external mirrors that might fail with DNS / blob redirects.
-    # The (pull_from, push_to) plan is pre-computed by gen_inventory.py.
-    #
-    # The shell snippet:
-    #  - skips work if the local-registry tag is already present locally
-    #    (idempotent re-runs after vagrant reload),
-    #  - retries the external pull up to 3 times with backoff (daocloud
-    #    occasionally returns 401 from rate-limiting on first hit).
-    - name: Preload system images to local registry
-      ansible.builtin.shell:
-        cmd: |
-          set -e
-          if docker image inspect "{{ item.push_to }}" >/dev/null 2>&1; then
-            echo "already cached locally: {{ item.push_to }}"
-            exit 0
-          fi
-          attempt=0
-          until [ $attempt -ge 3 ]; do
-            attempt=$((attempt+1))
-            if docker pull "{{ item.pull_from }}"; then break; fi
-            echo "pull attempt $attempt failed; retrying in 10s"
-            sleep 10
-          done
-          docker pull "{{ item.pull_from }}"   # final attempt; fail loudly if still bad
-          docker tag "{{ item.pull_from }}" "{{ item.push_to }}"
-          docker push "{{ item.push_to }}"
-      loop: "{{ registry_preload_list | default([]) }}"
-      loop_control:
-        label: "{{ item.src }} → {{ item.push_to }}"
-      when: (registry_preload_list | default([])) | length > 0
-      changed_when: true
   handlers:
     - name: restart docker
       ansible.builtin.systemd:

@@ -3,55 +3,171 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Preserve caller-provided values before env guardrails inject generic defaults.
-_HAS_SEED_NAMESPACE=0
-_HAS_SEED_REGISTRY=0
-_HAS_SEED_CNI_TYPE=0
-_HAS_SEED_CNI_MASTER_INTERFACE=0
-if [ "${SEED_NAMESPACE+x}" = "x" ]; then
-  _HAS_SEED_NAMESPACE=1
-  _PRESET_SEED_NAMESPACE="${SEED_NAMESPACE}"
-fi
-if [ "${SEED_REGISTRY+x}" = "x" ]; then
-  _HAS_SEED_REGISTRY=1
-  _PRESET_SEED_REGISTRY="${SEED_REGISTRY}"
-fi
-if [ "${SEED_CNI_TYPE+x}" = "x" ]; then
-  _HAS_SEED_CNI_TYPE=1
-  _PRESET_SEED_CNI_TYPE="${SEED_CNI_TYPE}"
-fi
-if [ "${SEED_CNI_MASTER_INTERFACE+x}" = "x" ]; then
-  _HAS_SEED_CNI_MASTER_INTERFACE=1
-  _PRESET_SEED_CNI_MASTER_INTERFACE="${SEED_CNI_MASTER_INTERFACE}"
-fi
-
 source "${SCRIPT_DIR}/env_seedemu.sh"
 source "${SCRIPT_DIR}/seed_k8s_cluster_inventory.sh"
 seed_load_cluster_inventory
+# seed-refactor: CLI args parser injected
+# All user-configurable values arrive via explicit CLI long-options now.
+# Infrastructure values (master IP, ssh key, registry endpoint, ...) still
+# come from `seed_k8s_cluster_inventory.sh` exports — that's a transitional
+# carve-out documented in memory/no_env_var_principle.md.
 
-# Drop env_seedemu generic defaults unless the caller explicitly provided values.
-if [ "${_HAS_SEED_NAMESPACE}" = "1" ]; then
-  SEED_NAMESPACE="${_PRESET_SEED_NAMESPACE}"
-else
-  unset SEED_NAMESPACE || true
-fi
-if [ "${_HAS_SEED_REGISTRY}" = "1" ]; then
-  SEED_REGISTRY="${_PRESET_SEED_REGISTRY}"
-else
-  unset SEED_REGISTRY || true
-fi
-if [ "${_HAS_SEED_CNI_TYPE}" = "1" ]; then
-  SEED_CNI_TYPE="${_PRESET_SEED_CNI_TYPE}"
-else
-  unset SEED_CNI_TYPE || true
-fi
-if [ "${_HAS_SEED_CNI_MASTER_INTERFACE}" = "1" ]; then
-  SEED_CNI_MASTER_INTERFACE="${_PRESET_SEED_CNI_MASTER_INTERFACE}"
-else
-  unset SEED_CNI_MASTER_INTERFACE || true
-fi
+NAMESPACE="seedemu-k3s-mini-mn"
+EXPERIMENT_PROFILE="mini_internet"
+CNI_TYPE="macvlan"
+CNI_MASTER_INTERFACE_FORCE="false"
+SCHEDULING_STRATEGY=""
+PLACEMENT_MODE="by_as_hard"
+MIN_NODES_USED="2"
+REQUIRE_ALL_NODES="false"
+BUILD_PARALLELISM="1"
+DOCKER_BUILDKIT="0"
+REGISTRY_PUSH_RETRIES="5"
+REGISTRY_PUSH_BACKOFF_SECONDS="5"
+DOCKER_MAX_CONCURRENT_UPLOADS="1"
+REGISTRY_PUSH_TIMEOUT_SECONDS="180"
+PRELOAD_FALLBACK_MODE="registry"
+IMAGE_DISTRIBUTION_MODE="preload"
+IMAGE_PULL_POLICY=""
+KUBECTL_EXEC_TIMEOUT_SECONDS="20"
+BGP_HEALTH_PARALLELISM="8"
+HOSTS_PER_AS="2"
+CONNECTIVITY_RETRY="24"
+CONNECTIVITY_RETRY_INTERVAL_SECONDS="5"
+BGP_WAIT_TIMEOUT_SECONDS="300"
+DEPLOY_WAIT_TIMEOUT="1800s"
+CLEAN_NAMESPACE="true"
+AUTO_CNI_FALLBACK="false"
+PROFILE_KIND="baseline"
+PROFILE_SUPPORT_TIER="tier1"
+PROFILE_ACCEPTANCE_LEVEL="runtime_strict"
+PROFILE_CAPACITY_GATE="none"
+AGENT_PROACTIVE_MODE="guided"
+BGP_STARTUP_MODE="phased"
+IBGP_REFLECTION_MODE="simple"
+ROUTING_KERNEL_EXPORT_MODE="default"
+OSPF_TIMING_PROFILE="default"
+REAL_TOPOLOGY_DIR="${HOME}/lxl_topology/autocoder_test"
+TOPOLOGY_SIZE="214"
+TOPOLOGY_FILE=""
+ASSIGNMENT_FILE=""
+NODE_LABELS_JSON=""
+NODE_POD_RESERVE="5"
+COLOCATE_IX_PEERS=""
+EXCLUDED_NAMESPACES=""
+CURRENT_PODS_JSON_PATH=""
+K8S_RUNTIME_EXPORT_BGP_TO_KERNEL="true"
+FAILURE_ACTION_MAP="${REPO_ROOT}/configs/seed_failure_action_map.yaml"
+PHASE_START_DRIVER=""
+RUN_ID=""
+RUNNER_LOG="true"
+ARTIFACT_DIR=""
+OUTPUT_DIR=""
+SSH_CONNECT_TIMEOUT_SECONDS="10"
+SSH_PROBE_TIMEOUT_SECONDS="20"
+SSH_LONG_PROBE_TIMEOUT_SECONDS="90"
+ANSIBLE_TIMEOUT="1800s"
+DOCKER_IO_MIRROR_ENDPOINT="https://docker.m.daocloud.io"
+K3S_FORCE_REINSTALL="false"
+K3S_VERSION="v1.28.5+k3s1"
+K3S_INSTALL_VERSION=""
+K3S_ARTIFACT_URL="https://rancher-mirror.rancher.cn/k3s"
+K3S_NODE_CIDR_MASK_SIZE_IPV4="24"
+K3S_MAX_PODS="110"
+K3S_SERVER_URL_OVERRIDE=""
 
-ACTION="${1:-all}"
+# Positional: first arg is the action verb (all|preflight|compile|...|clean).
+shift || true
+
+# CLI long-options. All optional; unset falls back to the defaults above.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --namespace)                       NAMESPACE="${2:?}"; shift 2 ;;
+    --cni-type)                        CNI_TYPE="${2:?}"; shift 2 ;;
+    --cni-master-interface-force)      CNI_MASTER_INTERFACE_FORCE="${2:?}"; shift 2 ;;
+    --scheduling-strategy)             SCHEDULING_STRATEGY="${2:?}"; shift 2 ;;
+    --placement-mode)                  PLACEMENT_MODE="${2:?}"; shift 2 ;;
+    --min-nodes-used)                  MIN_NODES_USED="${2:?}"; shift 2 ;;
+    --require-all-nodes)               REQUIRE_ALL_NODES="${2:?}"; shift 2 ;;
+    --build-parallelism)               BUILD_PARALLELISM="${2:?}"; shift 2 ;;
+    --docker-buildkit)                 DOCKER_BUILDKIT="${2:?}"; shift 2 ;;
+    --registry-push-retries)           REGISTRY_PUSH_RETRIES="${2:?}"; shift 2 ;;
+    --registry-push-backoff)           REGISTRY_PUSH_BACKOFF_SECONDS="${2:?}"; shift 2 ;;
+    --registry-push-timeout)           REGISTRY_PUSH_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --docker-max-concurrent-uploads)   DOCKER_MAX_CONCURRENT_UPLOADS="${2:?}"; shift 2 ;;
+    --preload-fallback-mode)           PRELOAD_FALLBACK_MODE="${2:?}"; shift 2 ;;
+    --image-distribution-mode)         IMAGE_DISTRIBUTION_MODE="${2:?}"; shift 2 ;;
+    --image-pull-policy)               IMAGE_PULL_POLICY="${2:?}"; shift 2 ;;
+    --kubectl-exec-timeout)            KUBECTL_EXEC_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --bgp-health-parallelism)          BGP_HEALTH_PARALLELISM="${2:?}"; shift 2 ;;
+    --hosts-per-as)                    HOSTS_PER_AS="${2:?}"; shift 2 ;;
+    --bgp-startup-mode)                BGP_STARTUP_MODE="${2:?}"; shift 2 ;;
+    --ibgp-reflection-mode)            IBGP_REFLECTION_MODE="${2:?}"; shift 2 ;;
+    --routing-kernel-export-mode)      ROUTING_KERNEL_EXPORT_MODE="${2:?}"; shift 2 ;;
+    --ospf-timing-profile)             OSPF_TIMING_PROFILE="${2:?}"; shift 2 ;;
+    --topology-size)                   TOPOLOGY_SIZE="${2:?}"; shift 2 ;;
+    --topology-file)                   TOPOLOGY_FILE="${2:?}"; shift 2 ;;
+    --topology-dir)                    REAL_TOPOLOGY_DIR="${2:?}"; shift 2 ;;
+    --assignment-file)                 ASSIGNMENT_FILE="${2:?}"; shift 2 ;;
+    --node-labels-json)                NODE_LABELS_JSON="${2:?}"; shift 2 ;;
+    --node-pod-reserve)                NODE_POD_RESERVE="${2:?}"; shift 2 ;;
+    --colocate-ix-peers)               COLOCATE_IX_PEERS="${2:?}"; shift 2 ;;
+    --excluded-namespaces)             EXCLUDED_NAMESPACES="${2:?}"; shift 2 ;;
+    --auto-cni-fallback)               AUTO_CNI_FALLBACK="${2:?}"; shift 2 ;;
+    --clean-namespace)                 CLEAN_NAMESPACE="${2:?}"; shift 2 ;;
+    --experiment-profile)              EXPERIMENT_PROFILE="${2:?}"; shift 2 ;;
+    --profile-kind)                    PROFILE_KIND="${2:?}"; shift 2 ;;
+    --profile-support-tier)            PROFILE_SUPPORT_TIER="${2:?}"; shift 2 ;;
+    --profile-acceptance-level)        PROFILE_ACCEPTANCE_LEVEL="${2:?}"; shift 2 ;;
+    --profile-capacity-gate)           PROFILE_CAPACITY_GATE="${2:?}"; shift 2 ;;
+    --agent-proactive-mode)            AGENT_PROACTIVE_MODE="${2:?}"; shift 2 ;;
+    --failure-action-map)              FAILURE_ACTION_MAP="${2:?}"; shift 2 ;;
+    --phase-start-driver)              PHASE_START_DRIVER="${2:?}"; shift 2 ;;
+    --run-id)                          RUN_ID="${2:?}"; shift 2 ;;
+    --runner-log)                      RUNNER_LOG="${2:?}"; shift 2 ;;
+    --artifact-dir)                    ARTIFACT_DIR="${2:?}"; shift 2 ;;
+    --output-dir)                      OUTPUT_DIR="${2:?}"; shift 2 ;;
+    --ssh-connect-timeout)             SSH_CONNECT_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --ssh-probe-timeout)               SSH_PROBE_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --ssh-long-probe-timeout)          SSH_LONG_PROBE_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --ansible-timeout)                 ANSIBLE_TIMEOUT="${2:?}"; shift 2 ;;
+    --docker-io-mirror-endpoint)       DOCKER_IO_MIRROR_ENDPOINT="${2:?}"; shift 2 ;;
+    --k3s-force-reinstall)             K3S_FORCE_REINSTALL="${2:?}"; shift 2 ;;
+    --k3s-version)                     K3S_VERSION="${2:?}"; shift 2 ;;
+    --k3s-install-version)             K3S_INSTALL_VERSION="${2:?}"; shift 2 ;;
+    --k3s-artifact-url)                K3S_ARTIFACT_URL="${2:?}"; shift 2 ;;
+    --k3s-node-cidr-mask-size-ipv4)    K3S_NODE_CIDR_MASK_SIZE_IPV4="${2:?}"; shift 2 ;;
+    --k3s-max-pods)                    K3S_MAX_PODS="${2:?}"; shift 2 ;;
+    --k3s-server-url-override)         K3S_SERVER_URL_OVERRIDE="${2:?}"; shift 2 ;;
+    --senior-bird-settle)              SENIOR_BIRD_SETTLE_SECONDS="${2:?}"; shift 2 ;;
+    --phase-status-parallelism)        PHASE_STATUS_PARALLELISM="${2:?}"; shift 2 ;;
+    --phase-protocol-parallelism)      PHASE_PROTOCOL_PARALLELISM="${2:?}"; shift 2 ;;
+    --relationship-sample-limit)       RELATIONSHIP_SAMPLE_LIMIT="${2:?}"; shift 2 ;;
+    --bgp-phase-timeout)               BGP_PHASE_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --bird-phase-timeout)              BIRD_PHASE_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --bird-start-exec-timeout)         BIRD_START_EXEC_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --bird-start-retries)              BIRD_START_RETRIES="${2:?}"; shift 2 ;;
+    --bird-start-retry-backoff)        BIRD_START_RETRY_BACKOFF_SECONDS="${2:?}"; shift 2 ;;
+    --kernel-exec-timeout)             KERNEL_EXEC_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --kernel-birdc-timeout)            KERNEL_BIRDC_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --kernel-export-mode)              KERNEL_EXPORT_MODE="${2:?}"; shift 2 ;;
+    --kernel-switch-retries)           KERNEL_SWITCH_RETRIES="${2:?}"; shift 2 ;;
+    --kernel-switch-retry-backoff)     KERNEL_SWITCH_RETRY_BACKOFF_SECONDS="${2:?}"; shift 2 ;;
+    --kernel-scan-base)                KERNEL_SCAN_BASE_SECONDS="${2:?}"; shift 2 ;;
+    --kernel-scan-jitter)              KERNEL_SCAN_JITTER_SECONDS="${2:?}"; shift 2 ;;
+    --generic-deploy-timeout)          GENERIC_DEPLOY_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --showcase-port)                   SHOWCASE_PORT="${2:?}"; shift 2 ;;
+    --compose-dir)                     COMPOSE_DIR="${2:?}"; shift 2 ;;
+    --registry-local-endpoint)         REGISTRY_LOCAL_ENDPOINT="${2:?}"; shift 2 ;;
+    --multus-shim-install-mode)        MULTUS_SHIM_INSTALL_MODE="${2:?}"; shift 2 ;;
+    --acceptance-namespace-delete-timeout) ACCEPTANCE_NAMESPACE_DELETE_TIMEOUT_SECONDS="${2:?}"; shift 2 ;;
+    --acceptance-image-distribution-mode) ACCEPTANCE_IMAGE_DISTRIBUTION_MODE="${2:?}"; shift 2 ;;
+    --) shift; break ;;
+    *) echo "[$(basename "${BASH_SOURCE[0]}")] unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+
 
 SEED_K3S_CLUSTER_NAME="${SEED_K3S_CLUSTER_NAME:-seedemu-k3s}"
 SEED_K3S_MASTER_IP="${SEED_K3S_MASTER_IP:-192.168.122.110}"
@@ -64,7 +180,7 @@ SEED_K3S_MASTER_NAME="${SEED_K3S_MASTER_NAME:-seed-k3s-master}"
 SEED_K3S_WORKER1_NAME="${SEED_K3S_WORKER1_NAME:-seed-k3s-worker1}"
 SEED_K3S_WORKER2_NAME="${SEED_K3S_WORKER2_NAME:-seed-k3s-worker2}"
 
-SEED_NAMESPACE="${SEED_NAMESPACE:-seedemu-k3s-mini-mn}"
+NAMESPACE="${NAMESPACE:-seedemu-k3s-mini-mn}"
 SEED_REGISTRY_HOST="${SEED_REGISTRY_HOST:-${SEED_K3S_MASTER_IP}}"
 SEED_REGISTRY_PORT="${SEED_REGISTRY_PORT:-5000}"
 SEED_REGISTRY="${SEED_REGISTRY:-${SEED_REGISTRY_HOST}:${SEED_REGISTRY_PORT}}"
@@ -72,69 +188,69 @@ if [ "${SEED_REGISTRY}" = "localhost:5001" ] || [ "${SEED_REGISTRY}" = "localhos
   # scripts/env_seedemu.sh defaults to localhost registry for kind; override to K3s master registry.
   SEED_REGISTRY="${SEED_REGISTRY_HOST}:${SEED_REGISTRY_PORT}"
 fi
-SEED_CNI_TYPE="${SEED_CNI_TYPE:-macvlan}"
+CNI_TYPE="${CNI_TYPE:-macvlan}"
 SEED_CNI_MASTER_INTERFACE="${SEED_CNI_MASTER_INTERFACE:-}"
-SEED_CNI_MASTER_INTERFACE_FORCE="${SEED_CNI_MASTER_INTERFACE_FORCE:-false}"
-if [ "${SEED_CNI_MASTER_INTERFACE_FORCE}" != "true" ] && [ "${SEED_CNI_MASTER_INTERFACE}" = "eth0" ]; then
+CNI_MASTER_INTERFACE_FORCE="${CNI_MASTER_INTERFACE_FORCE:-false}"
+if [ "${CNI_MASTER_INTERFACE_FORCE}" != "true" ] && [ "${SEED_CNI_MASTER_INTERFACE}" = "eth0" ]; then
   # scripts/env_seedemu.sh defaults to eth0 for generic scripts. For K3s multi-node
   # validation we auto-detect the real interface unless caller explicitly forces one.
   SEED_CNI_MASTER_INTERFACE=""
 fi
-SEED_PLACEMENT_MODE="${SEED_PLACEMENT_MODE:-by_as_hard}"
-SEED_SCHEDULING_STRATEGY="${SEED_SCHEDULING_STRATEGY:-}"
-SEED_MIN_NODES_USED="${SEED_MIN_NODES_USED:-2}"
-SEED_REQUIRE_ALL_NODES="${SEED_REQUIRE_ALL_NODES:-false}"
-SEED_BUILD_PARALLELISM="${SEED_BUILD_PARALLELISM:-1}"
-SEED_DOCKER_BUILDKIT="${SEED_DOCKER_BUILDKIT:-0}"
-SEED_REGISTRY_PUSH_RETRIES="${SEED_REGISTRY_PUSH_RETRIES:-5}"
-SEED_REGISTRY_PUSH_BACKOFF_SECONDS="${SEED_REGISTRY_PUSH_BACKOFF_SECONDS:-5}"
-SEED_DOCKER_MAX_CONCURRENT_UPLOADS="${SEED_DOCKER_MAX_CONCURRENT_UPLOADS:-1}"
-SEED_REGISTRY_PUSH_TIMEOUT_SECONDS="${SEED_REGISTRY_PUSH_TIMEOUT_SECONDS:-180}"
-SEED_PRELOAD_FALLBACK_MODE="${SEED_PRELOAD_FALLBACK_MODE:-registry}"
-SEED_IMAGE_DISTRIBUTION_MODE="${SEED_IMAGE_DISTRIBUTION_MODE:-preload}"
-case "${SEED_IMAGE_DISTRIBUTION_MODE}" in
+PLACEMENT_MODE="${PLACEMENT_MODE:-by_as_hard}"
+SCHEDULING_STRATEGY="${SCHEDULING_STRATEGY:-}"
+MIN_NODES_USED="${MIN_NODES_USED:-2}"
+REQUIRE_ALL_NODES="${REQUIRE_ALL_NODES:-false}"
+BUILD_PARALLELISM="${BUILD_PARALLELISM:-1}"
+DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-0}"
+REGISTRY_PUSH_RETRIES="${REGISTRY_PUSH_RETRIES:-5}"
+REGISTRY_PUSH_BACKOFF_SECONDS="${REGISTRY_PUSH_BACKOFF_SECONDS:-5}"
+DOCKER_MAX_CONCURRENT_UPLOADS="${DOCKER_MAX_CONCURRENT_UPLOADS:-1}"
+REGISTRY_PUSH_TIMEOUT_SECONDS="${REGISTRY_PUSH_TIMEOUT_SECONDS:-180}"
+PRELOAD_FALLBACK_MODE="${PRELOAD_FALLBACK_MODE:-registry}"
+IMAGE_DISTRIBUTION_MODE="${IMAGE_DISTRIBUTION_MODE:-preload}"
+case "${IMAGE_DISTRIBUTION_MODE}" in
   registry|preload) ;;
   *)
-    echo "Unsupported SEED_IMAGE_DISTRIBUTION_MODE: ${SEED_IMAGE_DISTRIBUTION_MODE} (expected: registry or preload)" >&2
+    echo "Unsupported SEED_IMAGE_DISTRIBUTION_MODE: ${IMAGE_DISTRIBUTION_MODE} (expected: registry or preload)" >&2
     exit 1
     ;;
 esac
-SEED_IMAGE_PULL_POLICY="${SEED_IMAGE_PULL_POLICY:-}"
-if [ -z "${SEED_IMAGE_PULL_POLICY}" ]; then
-  if [ "${SEED_IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
-    SEED_IMAGE_PULL_POLICY="IfNotPresent"
+IMAGE_PULL_POLICY="${IMAGE_PULL_POLICY:-}"
+if [ -z "${IMAGE_PULL_POLICY}" ]; then
+  if [ "${IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
+    IMAGE_PULL_POLICY="IfNotPresent"
   else
-    SEED_IMAGE_PULL_POLICY="Always"
+    IMAGE_PULL_POLICY="Always"
   fi
 fi
-SEED_KUBECTL_EXEC_TIMEOUT_SECONDS="${SEED_KUBECTL_EXEC_TIMEOUT_SECONDS:-20}"
-BGP_HEALTH_PARALLELISM="${SEED_BGP_HEALTH_PARALLELISM:-8}"
-SEED_HOSTS_PER_AS="${SEED_HOSTS_PER_AS:-2}"
+KUBECTL_EXEC_TIMEOUT_SECONDS="${KUBECTL_EXEC_TIMEOUT_SECONDS:-20}"
+BGP_HEALTH_PARALLELISM="${BGP_HEALTH_PARALLELISM:-8}"
+HOSTS_PER_AS="${HOSTS_PER_AS:-2}"
 CONNECTIVITY_RETRY="${CONNECTIVITY_RETRY:-24}"
 CONNECTIVITY_RETRY_INTERVAL_SECONDS="${CONNECTIVITY_RETRY_INTERVAL_SECONDS:-5}"
 BGP_WAIT_TIMEOUT_SECONDS="${BGP_WAIT_TIMEOUT_SECONDS:-300}"
 DEPLOY_WAIT_TIMEOUT="${DEPLOY_WAIT_TIMEOUT:-1800s}"
-CLEAN_NAMESPACE="${SEED_CLEAN_NAMESPACE:-true}"
-SEED_AUTO_CNI_FALLBACK="${SEED_AUTO_CNI_FALLBACK:-false}"
-SEED_EXPERIMENT_PROFILE="${SEED_EXPERIMENT_PROFILE:-mini_internet}"
-SEED_PROFILE_KIND="${SEED_PROFILE_KIND:-baseline}"
-SEED_PROFILE_SUPPORT_TIER="${SEED_PROFILE_SUPPORT_TIER:-tier1}"
-SEED_PROFILE_ACCEPTANCE_LEVEL="${SEED_PROFILE_ACCEPTANCE_LEVEL:-runtime_strict}"
-SEED_PROFILE_CAPACITY_GATE="${SEED_PROFILE_CAPACITY_GATE:-none}"
-SEED_AGENT_PROACTIVE_MODE="${SEED_AGENT_PROACTIVE_MODE:-guided}"
-SEED_BGP_STARTUP_MODE="${SEED_BGP_STARTUP_MODE:-phased}"
-SEED_FAILURE_ACTION_MAP="${SEED_FAILURE_ACTION_MAP:-${REPO_ROOT}/configs/seed_failure_action_map.yaml}"
-SEED_PHASE_START_DRIVER="${SEED_PHASE_START_DRIVER:-${SCRIPT_DIR}/seed_k8s_senior_phase_start.py}"
+CLEAN_NAMESPACE="${CLEAN_NAMESPACE:-true}"
+AUTO_CNI_FALLBACK="${AUTO_CNI_FALLBACK:-false}"
+EXPERIMENT_PROFILE="${EXPERIMENT_PROFILE:-mini_internet}"
+PROFILE_KIND="${PROFILE_KIND:-baseline}"
+PROFILE_SUPPORT_TIER="${PROFILE_SUPPORT_TIER:-tier1}"
+PROFILE_ACCEPTANCE_LEVEL="${PROFILE_ACCEPTANCE_LEVEL:-runtime_strict}"
+PROFILE_CAPACITY_GATE="${PROFILE_CAPACITY_GATE:-none}"
+AGENT_PROACTIVE_MODE="${AGENT_PROACTIVE_MODE:-guided}"
+BGP_STARTUP_MODE="${BGP_STARTUP_MODE:-phased}"
+FAILURE_ACTION_MAP="${FAILURE_ACTION_MAP:-${REPO_ROOT}/configs/seed_failure_action_map.yaml}"
+PHASE_START_DRIVER="${PHASE_START_DRIVER:-${SCRIPT_DIR}/seed_k8s_senior_phase_start.py}"
 
-RUN_ID="${SEED_RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
+RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 DEFAULT_ARTIFACT_DIR="${REPO_ROOT}/output/multinode_mini_validation/${RUN_ID}"
-SEED_ARTIFACT_DIR="${SEED_ARTIFACT_DIR:-${DEFAULT_ARTIFACT_DIR}}"
-SEED_OUTPUT_DIR="${SEED_OUTPUT_DIR:-${SEED_ARTIFACT_DIR}/compiled}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-${DEFAULT_ARTIFACT_DIR}}"
+OUTPUT_DIR="${OUTPUT_DIR:-${ARTIFACT_DIR}/compiled}"
 
 KUBECONFIG_PATH="${REPO_ROOT}/output/kubeconfigs/${SEED_K3S_CLUSTER_NAME}.yaml"
 EXAMPLE_DIR="${REPO_ROOT}/examples/kubernetes"
-COMPILE_DIR="${SEED_OUTPUT_DIR}"
-ARTIFACT_DIR="${SEED_ARTIFACT_DIR}"
+COMPILE_DIR="${OUTPUT_DIR}"
+ARTIFACT_DIR="${ARTIFACT_DIR}"
 REMOTE_WORK_BASE="/tmp/seedemu-mini-multinode"
 REMOTE_WORK_DIR="${REMOTE_WORK_BASE}-${RUN_ID}"
 STAGE_TIMELINE_PATH="${ARTIFACT_DIR}/stage_timeline.json"
@@ -163,7 +279,7 @@ MASTER_NODE_NAME=""
 WORKER1_NODE_NAME=""
 WORKER2_NODE_NAME=""
 EFFECTIVE_CNI_IFACE=""
-SEED_NODE_LABELS_JSON_EFFECTIVE=""
+NODE_LABELS_JSON_EFFECTIVE=""
 
 SSH_OPTS=(
   -o StrictHostKeyChecking=no
@@ -178,12 +294,12 @@ SSH_OPTS=(
   -i "${SEED_K3S_SSH_KEY}"
 )
 SSH_EXEC_OPTS=("${SSH_OPTS[@]}" -n)
-SEED_SSH_PROBE_TIMEOUT_SECONDS="${SEED_SSH_PROBE_TIMEOUT_SECONDS:-20}"
-SEED_SSH_LONG_PROBE_TIMEOUT_SECONDS="${SEED_SSH_LONG_PROBE_TIMEOUT_SECONDS:-90}"
+SSH_PROBE_TIMEOUT_SECONDS="${SSH_PROBE_TIMEOUT_SECONDS:-20}"
+SSH_LONG_PROBE_TIMEOUT_SECONDS="${SSH_LONG_PROBE_TIMEOUT_SECONDS:-90}"
 
 run_ssh_probe() {
   if command -v timeout >/dev/null 2>&1; then
-    timeout "${SEED_SSH_PROBE_TIMEOUT_SECONDS}" ssh "$@"
+    timeout "${SSH_PROBE_TIMEOUT_SECONDS}" ssh "$@"
   else
     ssh "$@"
   fi
@@ -214,7 +330,7 @@ tail_log_on_failure() {
 
 run_kubectl_exec() {
   if command -v timeout >/dev/null 2>&1; then
-    timeout "${SEED_KUBECTL_EXEC_TIMEOUT_SECONDS}" kubectl "$@"
+    timeout "${KUBECTL_EXEC_TIMEOUT_SECONDS}" kubectl "$@"
   else
     kubectl "$@"
   fi
@@ -246,12 +362,12 @@ require_cmd() {
 }
 
 normalize_placement_mode() {
-  case "${SEED_PLACEMENT_MODE}" in
+  case "${PLACEMENT_MODE}" in
     auto|strict3|by_as_hard)
       ;;
     *)
-      log "Unknown SEED_PLACEMENT_MODE='${SEED_PLACEMENT_MODE}', falling back to 'by_as_hard'"
-      SEED_PLACEMENT_MODE="by_as_hard"
+      log "Unknown PLACEMENT_MODE='${PLACEMENT_MODE}', falling back to 'by_as_hard'"
+      PLACEMENT_MODE="by_as_hard"
       ;;
   esac
 }
@@ -259,11 +375,11 @@ normalize_placement_mode() {
 resolve_scheduling_defaults() {
   normalize_placement_mode
 
-  if [ -z "${SEED_SCHEDULING_STRATEGY}" ]; then
-    if [ "${SEED_PLACEMENT_MODE}" = "auto" ]; then
-      SEED_SCHEDULING_STRATEGY="auto"
+  if [ -z "${SCHEDULING_STRATEGY}" ]; then
+    if [ "${PLACEMENT_MODE}" = "auto" ]; then
+      SCHEDULING_STRATEGY="auto"
     else
-      SEED_SCHEDULING_STRATEGY="by_as_hard"
+      SCHEDULING_STRATEGY="by_as_hard"
     fi
   fi
 }
@@ -448,7 +564,7 @@ except Exception:
 artifact_dir = Path(${ARTIFACT_DIR@Q}).resolve()
 diag_path = Path(${DIAGNOSTICS_PATH@Q})
 next_path = Path(${NEXT_ACTIONS_PATH@Q})
-map_path = Path(${SEED_FAILURE_ACTION_MAP@Q})
+map_path = Path(${FAILURE_ACTION_MAP@Q})
 
 failure_code = ${failure_code@Q}
 stage = ${stage@Q}
@@ -473,9 +589,9 @@ default_success_next = {
     "phase_start": "scripts/validate_k3s_mini_internet_multinode.sh verify",
     "start_bird": "scripts/validate_k3s_mini_internet_multinode.sh start-kernel",
     "start_kernel": "scripts/validate_k3s_mini_internet_multinode.sh verify",
-    "verify": "scripts/inspect_k3s_mini_internet.sh ${SEED_NAMESPACE}",
+    "verify": "scripts/inspect_k3s_mini_internet.sh ${NAMESPACE}",
     "clean": "scripts/validate_k3s_mini_internet_multinode.sh preflight",
-    "all": "scripts/seedlab_report_from_artifacts.sh ${SEED_ARTIFACT_DIR}",
+    "all": "scripts/seedlab_report_from_artifacts.sh ${ARTIFACT_DIR}",
 }
 
 first_pattern = str(entry.get("first_evidence_pattern", "summary.json"))
@@ -581,27 +697,27 @@ if not isinstance(timing, dict):
 
 summary = {
     "cluster": "${SEED_K3S_CLUSTER_NAME}",
-    "namespace": "${SEED_NAMESPACE}",
-    "profile": "${SEED_EXPERIMENT_PROFILE}",
-    "profile_id": "${SEED_EXPERIMENT_PROFILE}",
-    "profile_kind": "${SEED_PROFILE_KIND}",
-    "support_tier": "${SEED_PROFILE_SUPPORT_TIER}",
-    "acceptance_level": "${SEED_PROFILE_ACCEPTANCE_LEVEL}",
-    "capacity_gate": "${SEED_PROFILE_CAPACITY_GATE}",
+    "namespace": "${NAMESPACE}",
+    "profile": "${EXPERIMENT_PROFILE}",
+    "profile_id": "${EXPERIMENT_PROFILE}",
+    "profile_kind": "${PROFILE_KIND}",
+    "support_tier": "${PROFILE_SUPPORT_TIER}",
+    "acceptance_level": "${PROFILE_ACCEPTANCE_LEVEL}",
+    "capacity_gate": "${PROFILE_CAPACITY_GATE}",
     "capacity_gate_status": "open",
     "runner_status": "FAIL" if "${FAILURE_REASON}" else "PASS",
-    "proactive_mode": "${SEED_AGENT_PROACTIVE_MODE}",
+    "proactive_mode": "${AGENT_PROACTIVE_MODE}",
     "bird_autostart": False,
-    "bgp_startup_mode": "${SEED_BGP_STARTUP_MODE}",
-    "as_placement_mode": "${SEED_PLACEMENT_MODE}",
-    "placement_mode": "${SEED_PLACEMENT_MODE}",
-    "cni_type": "${SEED_CNI_TYPE}",
+    "bgp_startup_mode": "${BGP_STARTUP_MODE}",
+    "as_placement_mode": "${PLACEMENT_MODE}",
+    "placement_mode": "${PLACEMENT_MODE}",
+    "cni_type": "${CNI_TYPE}",
     "cni_master_interface": "${EFFECTIVE_CNI_IFACE}",
     "registry_host": "${SEED_REGISTRY_HOST}",
     "registry_port": int("${SEED_REGISTRY_PORT}"),
     "registry": "${SEED_REGISTRY}",
-    "image_distribution_mode": "${SEED_IMAGE_DISTRIBUTION_MODE}",
-    "image_pull_policy": "${SEED_IMAGE_PULL_POLICY}",
+    "image_distribution_mode": "${IMAGE_DISTRIBUTION_MODE}",
+    "image_pull_policy": "${IMAGE_PULL_POLICY}",
     "nodes_used": int("${NODES_USED}"),
     "placement_passed": "${PLACEMENT_PASSED}" == "true",
     "strict3_passed": "${STRICT3_PASSED}" == "true",
@@ -671,7 +787,7 @@ write_ssh_access_artifact() {
   python3 "${SCRIPT_DIR}/seed_k8s_ssh_probe.py" \
     --user "${SEED_K3S_USER}" \
     --key "${SEED_K3S_SSH_KEY}" \
-    --timeout "${SEED_SSH_PROBE_TIMEOUT_SECONDS}" \
+    --timeout "${SSH_PROBE_TIMEOUT_SECONDS}" \
     --json-output "${ARTIFACT_DIR}/ssh_access.json" \
     --node "${SEED_K3S_MASTER_NAME}=${SEED_K3S_MASTER_IP}" \
     --node "${SEED_K3S_WORKER1_NAME}=${SEED_K3S_WORKER1_IP}" \
@@ -728,17 +844,17 @@ resolve_cni_master_interface() {
 }
 
 set_effective_node_labels_json() {
-  if [ -n "${SEED_NODE_LABELS_JSON:-}" ]; then
-    SEED_NODE_LABELS_JSON_EFFECTIVE="${SEED_NODE_LABELS_JSON}"
+  if [ -n "${NODE_LABELS_JSON:-}" ]; then
+    NODE_LABELS_JSON_EFFECTIVE="${NODE_LABELS_JSON}"
     return
   fi
 
-  if [ "${SEED_PLACEMENT_MODE}" != "strict3" ] && [ "${SEED_PLACEMENT_MODE}" != "by_as_hard" ]; then
-    SEED_NODE_LABELS_JSON_EFFECTIVE="{}"
+  if [ "${PLACEMENT_MODE}" != "strict3" ] && [ "${PLACEMENT_MODE}" != "by_as_hard" ]; then
+    NODE_LABELS_JSON_EFFECTIVE="{}"
     return
   fi
 
-  SEED_NODE_LABELS_JSON_EFFECTIVE="$(cat <<JSON
+  NODE_LABELS_JSON_EFFECTIVE="$(cat <<JSON
 {
   "2": {"kubernetes.io/hostname": "${MASTER_NODE_NAME}"},
   "3": {"kubernetes.io/hostname": "${MASTER_NODE_NAME}"},
@@ -849,7 +965,7 @@ PY
 
   local -a required_plugins
   required_plugins=()
-  case "${SEED_CNI_TYPE}" in
+  case "${CNI_TYPE}" in
     macvlan)
       required_plugins=(macvlan static)
       ;;
@@ -876,7 +992,7 @@ PY
   fi
 
   # 6) registry
-  if [ "${SEED_IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
+  if [ "${IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
     registry_required="false"
   else
     if run_ssh_probe "${SSH_EXEC_OPTS[@]}" "${SEED_K3S_USER}@${SEED_K3S_MASTER_IP}" "sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -x registry" >/dev/null 2>&1; then
@@ -912,7 +1028,7 @@ preflight = {
     "registry_required": ${registry_required@Q} == "true",
     "registry_container_running": ${registry_ok@Q} == "true",
     "registry_reachable_from_workers": ${registry_reachable_ok@Q} == "true",
-    "image_distribution_mode": ${SEED_IMAGE_DISTRIBUTION_MODE@Q},
+    "image_distribution_mode": ${IMAGE_DISTRIBUTION_MODE@Q},
     "master_ip": ${SEED_K3S_MASTER_IP@Q},
     "worker1_ip": ${SEED_K3S_WORKER1_IP@Q},
     "worker2_ip": ${SEED_K3S_WORKER2_IP@Q},
@@ -1003,7 +1119,7 @@ repair_multus_kubeconfig_bridge_for_k3s() {
   log "Ensuring Multus kubeconfig compatibility path on K3s nodes"
   local host
   for host in "${SEED_K3S_MASTER_IP}" "${SEED_K3S_WORKER1_IP}" "${SEED_K3S_WORKER2_IP}"; do
-    run_ssh_probe_with_timeout "${SEED_SSH_LONG_PROBE_TIMEOUT_SECONDS}" "${SSH_EXEC_OPTS[@]}" "${SEED_K3S_USER}@${host}" \
+    run_ssh_probe_with_timeout "${SSH_LONG_PROBE_TIMEOUT_SECONDS}" "${SSH_EXEC_OPTS[@]}" "${SEED_K3S_USER}@${host}" \
       "set -euo pipefail; \
        sudo -n mkdir -p /etc/cni/net.d; \
        if [ ! -L /etc/cni/net.d/multus.d ] || [ \"\$(readlink -f /etc/cni/net.d/multus.d 2>/dev/null || true)\" != \"/var/lib/rancher/k3s/agent/etc/cni/net.d/multus.d\" ]; then \
@@ -1061,13 +1177,13 @@ YAML
 }
 
 repair_cni_plugins_for_k3s() {
-  if [ "${SEED_CNI_TYPE}" != "macvlan" ] && [ "${SEED_CNI_TYPE}" != "ipvlan" ]; then
+  if [ "${CNI_TYPE}" != "macvlan" ] && [ "${CNI_TYPE}" != "ipvlan" ]; then
     return 0
   fi
 
   local -a plugins
   plugins=(static)
-  if [ "${SEED_CNI_TYPE}" = "macvlan" ]; then
+  if [ "${CNI_TYPE}" = "macvlan" ]; then
     plugins+=(macvlan)
   else
     plugins+=(ipvlan)
@@ -1101,7 +1217,7 @@ run_preflight() {
     resolve_cni_master_interface
     resolve_scheduling_defaults
     set_effective_node_labels_json
-    log "Placement mode=${SEED_PLACEMENT_MODE}, scheduling=${SEED_SCHEDULING_STRATEGY}"
+    log "Placement mode=${PLACEMENT_MODE}, scheduling=${SCHEDULING_STRATEGY}"
     LAST_FAILURE_CODE=""
     record_stage_event "${CURRENT_STAGE}" "PASS" "${LAST_COMMAND}" "${ARTIFACT_DIR}/preflight.json" ""
     write_diagnostics_and_next_actions "${CURRENT_STAGE}" "PASS" "" "${LAST_FAILURE_CODE}"
@@ -1122,14 +1238,14 @@ run_preflight() {
     resolve_cni_master_interface
     resolve_scheduling_defaults
     set_effective_node_labels_json
-    log "Placement mode=${SEED_PLACEMENT_MODE}, scheduling=${SEED_SCHEDULING_STRATEGY}"
+    log "Placement mode=${PLACEMENT_MODE}, scheduling=${SCHEDULING_STRATEGY}"
     LAST_FAILURE_CODE=""
     record_stage_event "${CURRENT_STAGE}" "PASS" "${LAST_COMMAND}" "${ARTIFACT_DIR}/preflight.json" ""
     write_diagnostics_and_next_actions "${CURRENT_STAGE}" "PASS" "" "${LAST_FAILURE_CODE}"
     return
   fi
 
-  if [ "${SEED_IMAGE_DISTRIBUTION_MODE}" != "preload" ]; then
+  if [ "${IMAGE_DISTRIBUTION_MODE}" != "preload" ]; then
     log "Preflight still failing; attempting quick registry remediation"
     FALLBACK_USED="registry_host_network_repair"
 
@@ -1139,7 +1255,7 @@ run_preflight() {
         resolve_cni_master_interface
         resolve_scheduling_defaults
         set_effective_node_labels_json
-        log "Placement mode=${SEED_PLACEMENT_MODE}, scheduling=${SEED_SCHEDULING_STRATEGY}"
+        log "Placement mode=${PLACEMENT_MODE}, scheduling=${SCHEDULING_STRATEGY}"
         LAST_FAILURE_CODE=""
         record_stage_event "${CURRENT_STAGE}" "PASS" "${LAST_COMMAND}" "${ARTIFACT_DIR}/preflight.json" ""
         write_diagnostics_and_next_actions "${CURRENT_STAGE}" "PASS" "" "${LAST_FAILURE_CODE}"
@@ -1167,7 +1283,7 @@ run_preflight() {
     export SEED_K3S_SSH_KEY="${SEED_K3S_SSH_KEY}"
     export SEED_REGISTRY_HOST="${SEED_REGISTRY_HOST}"
     export SEED_REGISTRY_PORT="${SEED_REGISTRY_PORT}"
-    export SEED_ANSIBLE_TIMEOUT="${SEED_ANSIBLE_TIMEOUT:-600s}"
+    export ANSIBLE_TIMEOUT="${ANSIBLE_TIMEOUT:-600s}"
     ./scripts/setup_k3s_cluster.sh
   ) > "${ARTIFACT_DIR}/preflight_repair.log" 2>&1 || fail_with_reason "preflight_repair_failed"
 
@@ -1181,7 +1297,7 @@ run_preflight() {
   resolve_cni_master_interface
   resolve_scheduling_defaults
   set_effective_node_labels_json
-  log "Placement mode=${SEED_PLACEMENT_MODE}, scheduling=${SEED_SCHEDULING_STRATEGY}"
+  log "Placement mode=${PLACEMENT_MODE}, scheduling=${SCHEDULING_STRATEGY}"
   LAST_FAILURE_CODE=""
   record_stage_event "${CURRENT_STAGE}" "PASS" "${LAST_COMMAND}" "${ARTIFACT_DIR}/preflight.json" ""
   write_diagnostics_and_next_actions "${CURRENT_STAGE}" "PASS" "" "${LAST_FAILURE_CODE}"
@@ -1197,15 +1313,15 @@ run_compile() {
   (
     cd "${EXAMPLE_DIR}"
     PYTHONPATH="${REPO_ROOT}" \
-    SEED_NAMESPACE="${SEED_NAMESPACE}" \
+    NAMESPACE="${NAMESPACE}" \
     SEED_REGISTRY="${SEED_REGISTRY}" \
-    SEED_CNI_TYPE="${SEED_CNI_TYPE}" \
+    CNI_TYPE="${CNI_TYPE}" \
     SEED_CNI_MASTER_INTERFACE="${EFFECTIVE_CNI_IFACE}" \
-    SEED_SCHEDULING_STRATEGY="${SEED_SCHEDULING_STRATEGY}" \
-    SEED_NODE_LABELS_JSON="${SEED_NODE_LABELS_JSON_EFFECTIVE}" \
-    SEED_HOSTS_PER_AS="${SEED_HOSTS_PER_AS}" \
-    SEED_IMAGE_PULL_POLICY="${SEED_IMAGE_PULL_POLICY}" \
-    SEED_OUTPUT_DIR="${COMPILE_DIR}" \
+    SCHEDULING_STRATEGY="${SCHEDULING_STRATEGY}" \
+    NODE_LABELS_JSON="${NODE_LABELS_JSON_EFFECTIVE}" \
+    HOSTS_PER_AS="${HOSTS_PER_AS}" \
+    IMAGE_PULL_POLICY="${IMAGE_PULL_POLICY}" \
+    OUTPUT_DIR="${COMPILE_DIR}" \
     python3 k8s_mini_internet.py
   ) 2>&1 | tee "${ARTIFACT_DIR}/compile.log"
 
@@ -1213,7 +1329,7 @@ run_compile() {
   test -x "${COMPILE_DIR}/build_images.sh" || fail_with_reason "compile_missing_build_script"
 
   cat > "${ARTIFACT_DIR}/placement_expected.json" <<JSON
-${SEED_NODE_LABELS_JSON_EFFECTIVE}
+${NODE_LABELS_JSON_EFFECTIVE}
 JSON
 
   LAST_FAILURE_CODE=""
@@ -1343,11 +1459,11 @@ text = text.replace('"imagePullPolicy": "IfNotPresent"', '"imagePullPolicy": "Al
 text = text.replace('imagePullPolicy: IfNotPresent', 'imagePullPolicy: Always')
 path.write_text(text, encoding="utf-8")
 PY
-  SEED_IMAGE_PULL_POLICY="Always"
+  IMAGE_PULL_POLICY="Always"
 }
 
 run_registry_fallback_after_preload_failure() {
-  if [ "${SEED_PRELOAD_FALLBACK_MODE}" != "registry" ]; then
+  if [ "${PRELOAD_FALLBACK_MODE}" != "registry" ]; then
     return 1
   fi
 
@@ -1355,12 +1471,12 @@ run_registry_fallback_after_preload_failure() {
   ensure_registry_ready_for_fallback || return 1
 
   if ! ssh "${SSH_EXEC_OPTS[@]}" "${SEED_K3S_USER}@${SEED_K3S_MASTER_IP}" "sudo -n env \
-    SEED_BUILD_PARALLELISM=${SEED_BUILD_PARALLELISM} \
-    SEED_DOCKER_BUILDKIT=${SEED_DOCKER_BUILDKIT} \
-    SEED_REGISTRY_PUSH_RETRIES=${SEED_REGISTRY_PUSH_RETRIES} \
-    SEED_REGISTRY_PUSH_BACKOFF_SECONDS=${SEED_REGISTRY_PUSH_BACKOFF_SECONDS} \
-    SEED_DOCKER_MAX_CONCURRENT_UPLOADS=${SEED_DOCKER_MAX_CONCURRENT_UPLOADS} \
-    SEED_REGISTRY_PUSH_TIMEOUT_SECONDS=${SEED_REGISTRY_PUSH_TIMEOUT_SECONDS} \
+    BUILD_PARALLELISM=${BUILD_PARALLELISM} \
+    DOCKER_BUILDKIT=${DOCKER_BUILDKIT} \
+    REGISTRY_PUSH_RETRIES=${REGISTRY_PUSH_RETRIES} \
+    REGISTRY_PUSH_BACKOFF_SECONDS=${REGISTRY_PUSH_BACKOFF_SECONDS} \
+    DOCKER_MAX_CONCURRENT_UPLOADS=${DOCKER_MAX_CONCURRENT_UPLOADS} \
+    REGISTRY_PUSH_TIMEOUT_SECONDS=${REGISTRY_PUSH_TIMEOUT_SECONDS} \
     SEED_IMAGE_DISTRIBUTION_MODE=registry \
     bash -lc '
     set -euo pipefail
@@ -1380,7 +1496,7 @@ run_registry_fallback_after_preload_failure() {
     FAILURE_REASON="compile_missing_image_refs"
     return 1
   fi
-  SEED_IMAGE_DISTRIBUTION_MODE="registry"
+  IMAGE_DISTRIBUTION_MODE="registry"
   FALLBACK_USED="preload_to_registry"
   return 0
 }
@@ -1388,7 +1504,7 @@ run_registry_fallback_after_preload_failure() {
 run_remote_build() {
   CURRENT_STAGE="build"
   LAST_COMMAND="scripts/validate_k3s_mini_internet_multinode.sh build"
-  if [ "${SEED_IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
+  if [ "${IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
     log "Building images on master (${SEED_K3S_MASTER_IP}) and preloading them to all K3s nodes"
   else
     log "Building and pushing images on master (${SEED_K3S_MASTER_IP})"
@@ -1413,7 +1529,7 @@ run_remote_build() {
   fi
 
   log "Build logs -> ${ARTIFACT_DIR}/remote_build.log"
-  if ! ssh "${SSH_EXEC_OPTS[@]}" "${SEED_K3S_USER}@${SEED_K3S_MASTER_IP}" "sudo -n env     SEED_BUILD_PARALLELISM=${SEED_BUILD_PARALLELISM}     SEED_DOCKER_BUILDKIT=${SEED_DOCKER_BUILDKIT}     SEED_REGISTRY_PUSH_RETRIES=${SEED_REGISTRY_PUSH_RETRIES}     SEED_REGISTRY_PUSH_BACKOFF_SECONDS=${SEED_REGISTRY_PUSH_BACKOFF_SECONDS}     SEED_DOCKER_MAX_CONCURRENT_UPLOADS=${SEED_DOCKER_MAX_CONCURRENT_UPLOADS}     SEED_REGISTRY_PUSH_TIMEOUT_SECONDS=${SEED_REGISTRY_PUSH_TIMEOUT_SECONDS}     SEED_IMAGE_DISTRIBUTION_MODE=${SEED_IMAGE_DISTRIBUTION_MODE}     bash -lc '
+  if ! ssh "${SSH_EXEC_OPTS[@]}" "${SEED_K3S_USER}@${SEED_K3S_MASTER_IP}" "sudo -n env     BUILD_PARALLELISM=${BUILD_PARALLELISM}     DOCKER_BUILDKIT=${DOCKER_BUILDKIT}     REGISTRY_PUSH_RETRIES=${REGISTRY_PUSH_RETRIES}     REGISTRY_PUSH_BACKOFF_SECONDS=${REGISTRY_PUSH_BACKOFF_SECONDS}     DOCKER_MAX_CONCURRENT_UPLOADS=${DOCKER_MAX_CONCURRENT_UPLOADS}     REGISTRY_PUSH_TIMEOUT_SECONDS=${REGISTRY_PUSH_TIMEOUT_SECONDS}     IMAGE_DISTRIBUTION_MODE=${IMAGE_DISTRIBUTION_MODE}     bash -lc '
     set -euo pipefail
     cd "${REMOTE_WORK_DIR}"
     tar -xzf compiled.tar.gz
@@ -1428,7 +1544,7 @@ run_remote_build() {
     return 1
   fi
 
-  if [ "${SEED_IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
+  if [ "${IMAGE_DISTRIBUTION_MODE}" = "preload" ]; then
     if ! preload_images_to_cluster; then
       if ! run_registry_fallback_after_preload_failure; then
         return 1
@@ -1448,10 +1564,10 @@ run_remote_build() {
 
 run_phased_startup() {
   CURRENT_STAGE="phase_start"
-  LAST_COMMAND="python3 ${SEED_PHASE_START_DRIVER} ${SEED_NAMESPACE} ${ARTIFACT_DIR}"
+  LAST_COMMAND="python3 ${PHASE_START_DRIVER} ${NAMESPACE} ${ARTIFACT_DIR}"
   local rc=0 stage_start stage_duration
   stage_start="$(date +%s)"
-  python3 "${SEED_PHASE_START_DRIVER}" "${SEED_NAMESPACE}" "${ARTIFACT_DIR}" || rc=$?
+  python3 "${PHASE_START_DRIVER}" "${NAMESPACE}" "${ARTIFACT_DIR}" || rc=$?
   case "${rc}" in
     0)
       stage_duration="$(( $(date +%s) - stage_start ))"
@@ -1483,10 +1599,10 @@ run_phased_startup() {
 
 run_start_bird() {
   CURRENT_STAGE="start_bird"
-  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_start_bird0130.py ${SEED_NAMESPACE} ${ARTIFACT_DIR}"
+  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_start_bird0130.py ${NAMESPACE} ${ARTIFACT_DIR}"
   local rc=0 stage_start stage_duration
   stage_start="$(date +%s)"
-  python3 "${SCRIPT_DIR}/seed_k8s_start_bird0130.py" "${SEED_NAMESPACE}" "${ARTIFACT_DIR}" || rc=$?
+  python3 "${SCRIPT_DIR}/seed_k8s_start_bird0130.py" "${NAMESPACE}" "${ARTIFACT_DIR}" || rc=$?
   case "${rc}" in
     0)
       stage_duration="$(( $(date +%s) - stage_start ))"
@@ -1505,10 +1621,10 @@ run_start_bird() {
 
 run_start_kernel() {
   CURRENT_STAGE="start_kernel"
-  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_start_bird_kernel.py ${SEED_NAMESPACE} ${ARTIFACT_DIR}"
+  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_start_bird_kernel.py ${NAMESPACE} ${ARTIFACT_DIR}"
   local rc=0 stage_start stage_duration
   stage_start="$(date +%s)"
-  python3 "${SCRIPT_DIR}/seed_k8s_start_bird_kernel.py" "${SEED_NAMESPACE}" "${ARTIFACT_DIR}" || rc=$?
+  python3 "${SCRIPT_DIR}/seed_k8s_start_bird_kernel.py" "${NAMESPACE}" "${ARTIFACT_DIR}" || rc=$?
   case "${rc}" in
     0)
       stage_duration="$(( $(date +%s) - stage_start ))"
@@ -1594,20 +1710,20 @@ ensure_clean_namespace() {
 
 run_deploy() {
   CURRENT_STAGE="deploy"
-  LAST_COMMAND="kubectl -n ${SEED_NAMESPACE} apply -f ${COMPILE_DIR}/k8s.yaml"
+  LAST_COMMAND="kubectl -n ${NAMESPACE} apply -f ${COMPILE_DIR}/k8s.yaml"
   local deploy_command="${LAST_COMMAND}"
-  log "Deploying to namespace ${SEED_NAMESPACE} (bird stays stopped)"
+  log "Deploying to namespace ${NAMESPACE} (bird stays stopped)"
 
   local stage_start stage_duration
   stage_start="$(date +%s)"
 
   if [ "${CLEAN_NAMESPACE}" = "true" ]; then
-    ensure_clean_namespace "${SEED_NAMESPACE}" || return 1
+    ensure_clean_namespace "${NAMESPACE}" || return 1
   fi
 
-  kubectl create namespace "${SEED_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-  if ! kubectl -n "${SEED_NAMESPACE}" apply -f "${COMPILE_DIR}/k8s.yaml" > "${ARTIFACT_DIR}/apply.log" 2>&1; then
+  if ! kubectl -n "${NAMESPACE}" apply -f "${COMPILE_DIR}/k8s.yaml" > "${ARTIFACT_DIR}/apply.log" 2>&1; then
     tail_log_on_failure "${ARTIFACT_DIR}/apply.log" 80
     FAILURE_REASON="deploy_wait_timeout_or_failure"
     record_stage_event "${CURRENT_STAGE}" "FAIL" "${LAST_COMMAND}" "${ARTIFACT_DIR}/apply.log" "${FAILURE_REASON}"
@@ -1615,27 +1731,27 @@ run_deploy() {
   fi
 
   local namespace_phase
-  namespace_phase="$(kubectl get namespace "${SEED_NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  namespace_phase="$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
   if [ "${namespace_phase}" != "Active" ]; then
-    kubectl get namespace "${SEED_NAMESPACE}" -o yaml > "${ARTIFACT_DIR}/namespace_not_active.yaml" 2>/dev/null || true
+    kubectl get namespace "${NAMESPACE}" -o yaml > "${ARTIFACT_DIR}/namespace_not_active.yaml" 2>/dev/null || true
     FAILURE_REASON="namespace_delete_blocked"
     LAST_FAILURE_CODE="NAMESPACE_DELETE_BLOCKED"
     record_stage_event "${CURRENT_STAGE}" "FAIL" "${LAST_COMMAND}" "${ARTIFACT_DIR}/namespace_not_active.yaml" "${FAILURE_REASON}"
     return 1
   fi
 
-  if ! kubectl -n "${SEED_NAMESPACE}" wait --for=condition=Available --timeout="${DEPLOY_WAIT_TIMEOUT}" deployment --all > "${ARTIFACT_DIR}/wait.log" 2>&1; then
+  if ! kubectl -n "${NAMESPACE}" wait --for=condition=Available --timeout="${DEPLOY_WAIT_TIMEOUT}" deployment --all > "${ARTIFACT_DIR}/wait.log" 2>&1; then
     tail_log_on_failure "${ARTIFACT_DIR}/wait.log" 80
-    kubectl -n "${SEED_NAMESPACE}" get pods -o wide > "${ARTIFACT_DIR}/pods_wide.txt" 2>/dev/null || true
-    kubectl -n "${SEED_NAMESPACE}" get deployment -o wide > "${ARTIFACT_DIR}/deployments_wide.txt" 2>/dev/null || true
-    kubectl -n "${SEED_NAMESPACE}" get events --sort-by=.lastTimestamp > "${ARTIFACT_DIR}/events_tail.txt" 2>/dev/null || true
+    kubectl -n "${NAMESPACE}" get pods -o wide > "${ARTIFACT_DIR}/pods_wide.txt" 2>/dev/null || true
+    kubectl -n "${NAMESPACE}" get deployment -o wide > "${ARTIFACT_DIR}/deployments_wide.txt" 2>/dev/null || true
+    kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp > "${ARTIFACT_DIR}/events_tail.txt" 2>/dev/null || true
     FAILURE_REASON="deploy_wait_timeout_or_failure"
     record_stage_event "${CURRENT_STAGE}" "FAIL" "${LAST_COMMAND}" "${ARTIFACT_DIR}/wait.log" "${FAILURE_REASON}"
     return 1
   fi
 
-  kubectl -n "${SEED_NAMESPACE}" get pods -o wide > "${ARTIFACT_DIR}/pods_wide.txt"
-  kubectl -n "${SEED_NAMESPACE}" get deployment -o wide > "${ARTIFACT_DIR}/deployments_wide.txt"
+  kubectl -n "${NAMESPACE}" get pods -o wide > "${ARTIFACT_DIR}/pods_wide.txt"
+  kubectl -n "${NAMESPACE}" get deployment -o wide > "${ARTIFACT_DIR}/deployments_wide.txt"
   stage_duration="$(( $(date +%s) - stage_start ))"
   UP_DURATION_SECONDS="${stage_duration}"
   write_stage_timing "up_duration_seconds" "${stage_duration}"
@@ -1646,17 +1762,17 @@ run_deploy() {
 }
 
 run_verify_placement() {
-  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_verify_by_as_placement.py ${SEED_NAMESPACE} ${ARTIFACT_DIR} ${SEED_PLACEMENT_MODE} ${SEED_MIN_NODES_USED} ${ARTIFACT_DIR}/placement_expected.json"
-  log "Verifying placement mode=${SEED_PLACEMENT_MODE}"
+  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_verify_by_as_placement.py ${NAMESPACE} ${ARTIFACT_DIR} ${PLACEMENT_MODE} ${MIN_NODES_USED} ${ARTIFACT_DIR}/placement_expected.json"
+  log "Verifying placement mode=${PLACEMENT_MODE}"
 
   if [ ! -f "${ARTIFACT_DIR}/placement_expected.json" ]; then
     cat > "${ARTIFACT_DIR}/placement_expected.json" <<JSON
-${SEED_NODE_LABELS_JSON_EFFECTIVE}
+${NODE_LABELS_JSON_EFFECTIVE}
 JSON
   fi
 
   local placement_reason=""
-  if ! placement_reason="$(python3 "${SCRIPT_DIR}/seed_k8s_verify_by_as_placement.py"       "${SEED_NAMESPACE}" "${ARTIFACT_DIR}" "${SEED_PLACEMENT_MODE}" "${SEED_MIN_NODES_USED}"       "${ARTIFACT_DIR}/placement_expected.json" 2>/dev/null)"; then
+  if ! placement_reason="$(python3 "${SCRIPT_DIR}/seed_k8s_verify_by_as_placement.py"       "${NAMESPACE}" "${ARTIFACT_DIR}" "${PLACEMENT_MODE}" "${MIN_NODES_USED}"       "${ARTIFACT_DIR}/placement_expected.json" 2>/dev/null)"; then
     FAILURE_REASON="${placement_reason:-placement_check_failed}"
     return 1
   fi
@@ -1688,19 +1804,19 @@ PY2
 }
 
 run_verify_bgp() {
-  LAST_COMMAND="kubectl -n ${SEED_NAMESPACE} exec <router151> -- birdc s p"
+  LAST_COMMAND="kubectl -n ${NAMESPACE} exec <router151> -- birdc s p"
   log "Verifying BGP status"
 
   local router151 rs100
-  router151="$(kubectl -n "${SEED_NAMESPACE}" get pods -l seedemu.io/name=router0,seedemu.io/asn=151 -o jsonpath='{.items[0].metadata.name}')"
-  rs100="$(kubectl -n "${SEED_NAMESPACE}" get pods -l seedemu.io/name=ix100,seedemu.io/asn=100 -o jsonpath='{.items[0].metadata.name}')"
+  router151="$(kubectl -n "${NAMESPACE}" get pods -l seedemu.io/name=router0,seedemu.io/asn=151 -o jsonpath='{.items[0].metadata.name}')"
+  rs100="$(kubectl -n "${NAMESPACE}" get pods -l seedemu.io/name=ix100,seedemu.io/asn=100 -o jsonpath='{.items[0].metadata.name}')"
 
   local deadline now
   deadline="$(( $(date +%s) + BGP_WAIT_TIMEOUT_SECONDS ))"
 
   while true; do
-    run_kubectl_exec -n "${SEED_NAMESPACE}" exec "${router151}" -- birdc s p 2>/dev/null > "${ARTIFACT_DIR}/bird_router151.txt" || true
-    run_kubectl_exec -n "${SEED_NAMESPACE}" exec "${rs100}" -- birdc s p 2>/dev/null > "${ARTIFACT_DIR}/bird_ix100.txt" || true
+    run_kubectl_exec -n "${NAMESPACE}" exec "${router151}" -- birdc s p 2>/dev/null > "${ARTIFACT_DIR}/bird_router151.txt" || true
+    run_kubectl_exec -n "${NAMESPACE}" exec "${rs100}" -- birdc s p 2>/dev/null > "${ARTIFACT_DIR}/bird_ix100.txt" || true
 
     if grep -q 'Established' "${ARTIFACT_DIR}/bird_router151.txt" \
       && grep -Eq 'p_as2[[:space:]]+BGP.*Established' "${ARTIFACT_DIR}/bird_ix100.txt" \
@@ -1708,9 +1824,9 @@ run_verify_bgp() {
       && grep -Eq 'p_as4[[:space:]]+BGP.*Established' "${ARTIFACT_DIR}/bird_ix100.txt"; then
       local bgp_reason=""
       if bgp_reason="$(python3 "${SCRIPT_DIR}/seed_k8s_bgp_health.py" \
-          "${SEED_NAMESPACE}" "${ARTIFACT_DIR}" \
+          "${NAMESPACE}" "${ARTIFACT_DIR}" \
           --parallelism "${BGP_HEALTH_PARALLELISM}" \
-          --kubectl-timeout "${SEED_KUBECTL_EXEC_TIMEOUT_SECONDS}" 2>/dev/null)"; then
+          --kubectl-timeout "${KUBECTL_EXEC_TIMEOUT_SECONDS}" 2>/dev/null)"; then
         BGP_PASSED="true"
         return 0
       fi
@@ -1727,11 +1843,11 @@ run_verify_bgp() {
 }
 
 run_verify_connectivity() {
-  LAST_COMMAND="kubectl -n ${SEED_NAMESPACE} exec <host150> -- ping -c 3 -W 2 10.151.0.71"
+  LAST_COMMAND="kubectl -n ${NAMESPACE} exec <host150> -- ping -c 3 -W 2 10.151.0.71"
   log "Verifying cross-AS connectivity"
 
   local host150 target_ip
-  host150="$(kubectl -n "${SEED_NAMESPACE}" get pods -l seedemu.io/name=host_0,seedemu.io/asn=150 -o jsonpath='{.items[0].metadata.name}')"
+  host150="$(kubectl -n "${NAMESPACE}" get pods -l seedemu.io/name=host_0,seedemu.io/asn=150 -o jsonpath='{.items[0].metadata.name}')"
   target_ip="10.151.0.71"
 
   : > "${ARTIFACT_DIR}/ping_150_to_151.txt"
@@ -1739,7 +1855,7 @@ run_verify_connectivity() {
   for ((attempt=1; attempt<=CONNECTIVITY_RETRY; attempt++)); do
     if {
       echo "=== attempt ${attempt}/${CONNECTIVITY_RETRY} ==="
-      run_kubectl_exec -n "${SEED_NAMESPACE}" exec "${host150}" -- ping -c 3 -W 2 "${target_ip}"
+      run_kubectl_exec -n "${NAMESPACE}" exec "${host150}" -- ping -c 3 -W 2 "${target_ip}"
     } >> "${ARTIFACT_DIR}/ping_150_to_151.txt" 2>&1; then
       CONNECTIVITY_PASSED="true"
       return 0
@@ -1758,23 +1874,23 @@ run_verify_connectivity() {
 }
 
 run_verify_recovery() {
-  LAST_COMMAND="kubectl -n ${SEED_NAMESPACE} rollout status deployment/<host151-deployment> --timeout=600s"
+  LAST_COMMAND="kubectl -n ${NAMESPACE} rollout status deployment/<host151-deployment> --timeout=600s"
   log "Verifying self-healing"
 
   local old_pod deployment new_pod start_ts end_ts recovery_seconds
-  old_pod="$(kubectl -n "${SEED_NAMESPACE}" get pods -l seedemu.io/name=host_0,seedemu.io/asn=151 -o jsonpath='{.items[0].metadata.name}')"
-  deployment="$(kubectl -n "${SEED_NAMESPACE}" get pod "${old_pod}" -o jsonpath='{.metadata.labels.app}')"
+  old_pod="$(kubectl -n "${NAMESPACE}" get pods -l seedemu.io/name=host_0,seedemu.io/asn=151 -o jsonpath='{.items[0].metadata.name}')"
+  deployment="$(kubectl -n "${NAMESPACE}" get pod "${old_pod}" -o jsonpath='{.metadata.labels.app}')"
 
   start_ts="$(date +%s)"
-  kubectl -n "${SEED_NAMESPACE}" delete pod "${old_pod}" >/dev/null
-  if ! kubectl -n "${SEED_NAMESPACE}" rollout status deployment/"${deployment}" --timeout=600s >/dev/null; then
+  kubectl -n "${NAMESPACE}" delete pod "${old_pod}" >/dev/null
+  if ! kubectl -n "${NAMESPACE}" rollout status deployment/"${deployment}" --timeout=600s >/dev/null; then
     FAILURE_REASON="recovery_check_failed"
     return 1
   fi
   end_ts="$(date +%s)"
   recovery_seconds="$((end_ts - start_ts))"
 
-  new_pod="$(kubectl -n "${SEED_NAMESPACE}" get pods -l app="${deployment}" -o jsonpath='{.items[0].metadata.name}')"
+  new_pod="$(kubectl -n "${NAMESPACE}" get pods -l app="${deployment}" -o jsonpath='{.items[0].metadata.name}')"
 
   cat > "${ARTIFACT_DIR}/recovery_check.json" <<JSON
 {
@@ -1791,10 +1907,10 @@ JSON
 }
 
 run_materialize_validation_contract() {
-  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_validation_contract.py materialize ${SEED_NAMESPACE} ${ARTIFACT_DIR} ${SEED_EXPERIMENT_PROFILE}"
+  LAST_COMMAND="python3 ${SCRIPT_DIR}/seed_k8s_validation_contract.py materialize ${NAMESPACE} ${ARTIFACT_DIR} ${EXPERIMENT_PROFILE}"
   if ! python3 "${SCRIPT_DIR}/seed_k8s_validation_contract.py" materialize \
-    "${SEED_NAMESPACE}" "${ARTIFACT_DIR}" "${SEED_EXPERIMENT_PROFILE}" \
-    --kubectl-timeout "${SEED_KUBECTL_EXEC_TIMEOUT_SECONDS}" >/dev/null 2>&1; then
+    "${NAMESPACE}" "${ARTIFACT_DIR}" "${EXPERIMENT_PROFILE}" \
+    --kubectl-timeout "${KUBECTL_EXEC_TIMEOUT_SECONDS}" >/dev/null 2>&1; then
     FAILURE_REASON="artifact_materialization_failed"
     return 1
   fi
@@ -1802,7 +1918,7 @@ run_materialize_validation_contract() {
   if ! python3 "${SCRIPT_DIR}/seed_k8s_validation_contract.py" assert \
     "${ARTIFACT_DIR}" \
     --profile-file "${REPO_ROOT}/configs/seed_k8s_profiles.yaml" \
-    --profile-id "${SEED_EXPERIMENT_PROFILE}" >/dev/null 2>&1; then
+    --profile-id "${EXPERIMENT_PROFILE}" >/dev/null 2>&1; then
     FAILURE_REASON="artifact_contract_failed"
     return 1
   fi
@@ -1829,10 +1945,10 @@ run_verify() {
 
 run_clean() {
   CURRENT_STAGE="clean"
-  LAST_COMMAND="kubectl delete namespace ${SEED_NAMESPACE} --ignore-not-found"
-  log "Cleaning namespace ${SEED_NAMESPACE}"
+  LAST_COMMAND="kubectl delete namespace ${NAMESPACE} --ignore-not-found"
+  log "Cleaning namespace ${NAMESPACE}"
   ensure_kubeconfig
-  kubectl delete namespace "${SEED_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete namespace "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
   LAST_FAILURE_CODE=""
   record_stage_event "${CURRENT_STAGE}" "PASS" "${LAST_COMMAND}" "${ARTIFACT_DIR}/summary.json" ""
   write_diagnostics_and_next_actions "${CURRENT_STAGE}" "PASS" "" "${LAST_FAILURE_CODE}"
@@ -1847,10 +1963,10 @@ main_all() {
   run_deploy || fail_with_reason "${FAILURE_REASON:-deploy_failed}"
   run_phased_startup || fail_with_reason "${FAILURE_REASON:-phase_start_failed}"
   if ! run_verify; then
-    if [ "${SEED_CNI_TYPE}" = "macvlan" ] && [ "${SEED_AUTO_CNI_FALLBACK}" = "true" ]; then
+    if [ "${CNI_TYPE}" = "macvlan" ] && [ "${AUTO_CNI_FALLBACK}" = "true" ]; then
       log "Verification failed with macvlan; retrying once with ipvlan fallback"
       FALLBACK_USED="cni_fallback_macvlan_to_ipvlan"
-      SEED_CNI_TYPE="ipvlan"
+      CNI_TYPE="ipvlan"
       FAILURE_REASON=""
       PLACEMENT_PASSED="false"
       STRICT3_PASSED="false"

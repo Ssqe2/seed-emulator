@@ -20,17 +20,12 @@ namespace: ""                    # SEED_NAMESPACE  (空 = 用 profile 自带的�
 # 修改 seed-emulator/configs/seed_k8s_profiles.yaml。
 topology_file: "../examples/kubernetes/k8s_nano_internet.py"
 
-# --- CNI / scheduling 主选项 --------------------------------------------
-cni:
-  # `vxlan-overlay`: SEED IX is implemented as a per-IX Linux bridge bound to
-  # a VXLAN tunnel between K3s nodes (ansible step 3.6). Pods attach to the
-  # local bridge; cross-node frames are encapsulated over UDP/4789 to peers
-  # via the K3s underlay (192.168.77.x). No vmnet promiscuous required, so
-  # it works on every Vagrant provider (vmware/virtualbox/libvirt). This is
-  # the standard mechanism every Kubernetes overlay (Flannel-vxlan, Calico,
-  # Cilium, Weave) uses for cross-host L2.
-  type: vxlan-overlay            # SEED_CNI_TYPE   vxlan-overlay | macvlan | ipvlan | bridge | host-local
+# CNI 类型(vxlan-overlay / macvlan / ipvlan / bridge / host-local)统一在
+# configs/k3s.yaml::cni.type 设定 — 同一个值同时驱动 ansible 在节点上搭什么
+# bridge/plugin (infrastructure layer) 和 SEED 编译器 emit 的 NAD type
+# (application layer)。两层必须一致,因此单源声明在 k3s.yaml。
 
+# --- scheduling 主选项 ---------------------------------------------------
 scheduling:
   # 留空 = 用 profile 自带的默认策略(mini_internet 默认 by_as_hard;
   # transit_as 默认 auto;real_topology_rr 默认 custom)。显式写一个值
@@ -52,6 +47,19 @@ image:
 
 # --- Build 调优 -----------------------------------------------------------
 advanced:
+  # 控制 SEED 编译器并行跑几个 `docker build`。1 = 串行。
+  # 大多数 dev 机器 (4+ 核, 8GB+ RAM) 可以稳跑 4;再高遇 CPU/RAM 瓶颈。
+  # 内存紧 (eg WSL 4GB) 调回 2;构建挂了再调回 1。
+  #
+  # 注意:在 Docker 29 + BuildKit 上,4-way parallel docker build+push
+  # 期间(同 host 同时跑 4 个 build,然后并行 push 到本机 registry)
+  # 偶发 docker daemon 内部状态在前几秒里 connect 127.0.0.1:5000 全部
+  # 返回 "connection refused",尽管 registry container 一直 listening。
+  # 5/8 (2026-05-08) WSL+VMware 完整 PASS 那次跑的就是 1,我们保留这条
+  # 已验证的默认。改 4 之前请先做 build push baseline。
   build_parallelism: 1           # SEED_BUILD_PARALLELISM
-  docker_buildkit: 0             # SEED_DOCKER_BUILDKIT  (1 启用 BuildKit)
+  # 0 = 用 Docker 旧版 builder;1 = 用 BuildKit (Docker 18.09+)。
+  # BuildKit 在 Docker 29 上会引入额外的 daemon 内部状态,跟 build 期间
+  # 高并发 push 互动出 race(见上)。保持 0 = 跟 5/8 PASS 一致。
+  docker_buildkit: 0             # SEED_DOCKER_BUILDKIT
   run_id: ""                     # SEED_RUN_ID  (空 = profile_runner 用时间戳生成)

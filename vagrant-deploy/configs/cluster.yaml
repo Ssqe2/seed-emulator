@@ -1,40 +1,67 @@
 # SEED Emulator — VM Cluster Configuration
-# Used by scripts/seed_vagrant.sh to create VMs via Vagrant
+# Used by scripts/seed_vagrant.sh to create VMs via Vagrant.
 
 provider: vmware_desktop
 
 # Box selection per host architecture. seed_vagrant.sh resolves at generate
-# time: if `uname -m` matches one of the keys below, that box is used;
-# otherwise `box` is the default.
-#   x86_64 / amd64 host  → `box`
-#   arm64 / aarch64 host → `box_arm64`
-# Apple Silicon Macs (M1+) need an ARM box because VMware Fusion 13+ on
-# arm64 cannot run x86_64 guests.
-box: generic/ubuntu2204
+# time: arm64 host → box_arm64; otherwise → box.
+box: generic/ubuntu2204 
 box_arm64: gyptazy/ubuntu22.04-arm64
 
 network:
   type: private_network
+  # cidr 留空 → normalize_cluster.py 按 provider 选默认: 也就是cidr按照符合provider需求的情况默认。
+  #   vmware_desktop → 192.168.77.0/24
+  #   virtualbox     → 192.168.56.0/24   (vbox 6.1+ 默认只允许 .56.0/21)
+  #   libvirt        → 192.168.77.0/24
+  # 改 provider 通常不用动这一段。
+  # cidr: 192.168.77.0/24
 
 # Enable CPU virtualization extensions passthrough to guest VMs.
-# Required when running Vagrant + a hypervisor (libvirt/KVM/VirtualBox) inside the guest.
 nested_virt: false
 
-nodes:
-  - name: master
-    role: master
-    cpus: 2
-    memory: 4096
-    ip: 192.168.77.10
+# Shorthand form:
+#   master 一台 + workers N 台
+#   IP 自动从 network.cidr + offset 算(master=.10, worker1=.11, worker2=.12, ...)
+workers: 2
 
-  - name: worker1
-    role: worker
-    cpus: 2
-    memory: 2048
-    ip: 192.168.77.11
+# 基础 template — 每个 worker 默认用这个
+master:
+  cpus: 2
+  memory: 4096
+worker:
+  cpus: 2
+  memory: 2048
 
-  - name: worker2
-    role: worker
-    cpus: 2
-    memory: 2048
-    ip: 192.168.77.12
+# 单独自定义某个 worker:在下面写 worker1 / worker2 / ... 任何 field 都覆盖
+# 上面的 worker template;没写的 field 继续用 template。
+# 约束:写 workerN 必须满足 workers >= N(否则 normalize 会 die)。
+# `ip` 字段只能是 integer offset(last octet),不是完整 IP。cidr 前缀
+# 不能动;完整 IP 自定义请用下方的 explicit `nodes:` 形式。
+#
+# 示例(本机不启用):
+# worker1:
+#   cpus: 4
+#   memory: 8192
+# worker3:
+#   cpus: 8
+#   memory: 16384
+#   ip: 20            # → <cidr-prefix>.20 (跳过默认的 .13)
+
+# ----------------------------------------------------------------------------
+# Explicit form — 当你需要完全异构 (自起节点名 / 完整 IP / 不同子网):
+# 写 `nodes:` 列表,每个元素手填所有字段。一旦 `nodes:` 非空,上面的
+# workers / master / worker / workerN 全部失效 (normalize_cluster.py 只看 nodes)。
+#
+# 字段:
+#   name    机器名 (自定义,会成为 vagrant_ssh_config 的 Host 别名)
+#   role    master | worker  (必须恰好一个 master)
+#   cpus    int
+#   memory  int  (MB)
+#   ip      完整 IP 字符串 (不是 offset),你自己负责不冲突
+#
+# 示例(本机不启用):
+# nodes:
+#   - { name: master,   role: master, cpus: 4, memory: 8192,  ip: 192.168.77.10 }
+#   - { name: worker-a, role: worker, cpus: 2, memory: 2048,  ip: 192.168.77.11 }
+#   - { name: worker-b, role: worker, cpus: 8, memory: 16384, ip: 192.168.77.20 }

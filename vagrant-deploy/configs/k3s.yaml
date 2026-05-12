@@ -25,44 +25,35 @@ registry:
   # is reachable from neither master nor workers (e.g. ghcr.io was added
   # because Multus pulls from there and we have no GitHub Container mirror).
   mirrors:
+    # docker.io = Docker Hub. 用来拉:
+    #   - K3s 系统组件(pause / coredns / local-path-provisioner / metrics-server)
+    #   - SEED router/host 镜像的 base layer(ubuntu:22.04 之类)
     docker.io:
-      - https://docker.1ms.run         # 1ms.run avoids the daocloud → cloudflare blob redirect
-      - https://docker.m.daocloud.io   # secondary fallback
+      - https://docker.1ms.run         # 优先:1ms.run 自带 CDN,稳
+      - https://docker.m.daocloud.io   # 备胎:daocloud 拉 blob 时会 302 到 Cloudflare(中国部分网络被墙),
+                                       #       所以放第二档;1ms.run 缺该 image 时才用
+    # ghcr.io = GitHub Container Registry. 用来拉:
+    #   - Multus CNI 本体(ghcr.io/k8snetworkplumbingwg/multus-cni)
+    #     ← 整套 SEED 多网卡仿真离不开它
+    #   - 其它 GitHub 开源项目托管在 ghcr.io 的 image(目前我们只用 Multus 一个)
+    # 中国境内 ghcr.io 同样慢/挂,走 daocloud 代理。
     ghcr.io:
       - https://ghcr.m.daocloud.io
-
-  # Images to preload into the in-cluster registry (192.168.77.10:5000) so
-  # workers can pull them over the private network instead of each one
-  # hitting external mirrors (which fail intermittently with DNS / blob
-  # redirects on resource-constrained workers).
-  #
-  # Mechanism (executed once on master, after the registry is up):
-  #   1. docker pull <image>          (via daemon mirror = 1ms.run/daocloud)
-  #   2. docker tag <image> 192.168.77.10:5000/<bare-path>
-  #   3. docker push 192.168.77.10:5000/<bare-path>
-  #
-  # Each worker's containerd registries.yaml lists 192.168.77.10:5000 as the
-  # FIRST endpoint for docker.io and ghcr.io, so a worker hitting a preloaded
-  # image gets it from the LAN; otherwise it falls through to the external
-  # mirrors above.
-  preload_images:
-    - rancher/mirrored-pause:3.6                          # K3s sandbox image (every pod)
-    - ghcr.io/k8snetworkplumbingwg/multus-cni:snapshot    # Multus DaemonSet
 
 cni:
   # `vxlan-overlay`: see configs/deploy.yaml for the rationale. Ansible step
   # 3.6 creates per-IX bridge + vxlan; the SEED compiler emits IX NADs of
   # type=bridge that pods attach to.
   type: vxlan-overlay
-  master_interface: auto    # auto = detect from default route
 
+# Multus = K8s 多网卡 CNI。SEED router/host pod 离不开它(eth1/eth2 都靠它挂)。
 multus:
+  # true  → ansible 拉 Multus manifest → kubectl apply → 起 DaemonSet,每节点跑一份
+  # false → 跳过装 Multus → 集群无多网卡能力,SEED 仿真跑不起来。基本不该关。
   install: true
+  # K3s + Multus 已知兼容性 bug:默认 ClusterRoleBinding 给 Multus 的 K8s API 权限不足,
+  # Multus pod 启动后挂网卡时报 forbidden(读 NAD/Pod/Node 权限缺)。
+  # true  → ansible 装完 Multus 后额外打一个 RBAC patch 修这个 bug
+  # false → 跳过 patch,Multus 挂网卡时会失败。基本不该关。
   rbac_patch: true
 
-emulator:
-  namespace: seedemu
-  scheduling_strategy: auto    # auto | by_as | by_as_hard | none
-  image_pull_policy: Always    # Always | IfNotPresent
-  internet_map: false          # true = enable web visualization
-  generate_services: true      # true = generate K8s Service resources

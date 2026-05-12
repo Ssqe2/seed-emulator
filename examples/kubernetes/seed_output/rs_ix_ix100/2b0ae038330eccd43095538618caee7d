@@ -1,0 +1,7 @@
+router id 10.100.0.100;
+ipv4 table t_direct;
+protocol device {
+}
+
+include "/etc/bird/conf/*.conf";
+

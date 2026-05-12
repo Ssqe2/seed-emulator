@@ -1,0 +1,85 @@
+router id 10.0.0.6;
+ipv4 table t_direct;
+protocol device {
+}
+protocol direct local_nets {
+    ipv4 {
+        table t_direct;
+        import all;
+    };
+
+    interface "net0";
+
+}
+define LOCAL_COMM = (151, 0, 0);
+define CUSTOMER_COMM = (151, 1, 0);
+define PEER_COMM = (151, 2, 0);
+define PROVIDER_COMM = (151, 3, 0);
+ipv4 table t_bgp;
+protocol pipe {
+    table t_bgp;
+    peer table master4;
+    import none;
+    export all;
+}
+protocol pipe {
+    table t_direct;
+    peer table t_bgp;
+    import none;
+    export filter { bgp_large_community.add(LOCAL_COMM); bgp_local_pref = 40; accept; };
+}
+protocol bgp Ebgp_u_as3 {
+    #debug {states};
+    ipv4 {
+        table t_bgp;
+        import filter {
+            bgp_large_community.add(PROVIDER_COMM);
+            bgp_local_pref = 10;
+            accept;
+        };
+        export where bgp_large_community ~ [LOCAL_COMM, CUSTOMER_COMM];
+        next hop self;
+    };
+    local 10.101.0.151 as 151;
+    neighbor 10.101.0.3 as 3;
+}
+protocol bgp Ebgp_p_as152 {
+    #debug {states};
+    ipv4 {
+        table t_bgp;
+        import filter {
+            bgp_large_community.add(PEER_COMM);
+            bgp_local_pref = 20;
+            accept;
+        };
+        export where bgp_large_community ~ [LOCAL_COMM, CUSTOMER_COMM];
+        next hop self;
+    };
+    local 10.101.0.151 as 151;
+    neighbor 10.101.0.152 as 152;
+}
+
+include "/etc/bird/conf/*.conf";
+ipv4 table t_ospf;
+protocol ospf ospf1 {
+    ipv4 {
+        table t_ospf;
+        import all;
+        export all;
+    };
+    tick 3;
+
+    area 0 {
+        interface "dummy0" { stub; };
+        interface "ix101" { stub; };
+        interface "net0" { hello 30; dead 36000; type pointopoint; retransmit 20;};
+
+    };
+}
+protocol pipe {
+    table t_ospf;
+    peer table master4;
+    import none;
+    export all;
+}
+

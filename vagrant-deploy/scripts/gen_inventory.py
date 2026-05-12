@@ -11,6 +11,7 @@ Single source of truth = the two YAML files. This generator only adapts them to 
 inventory format.
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -77,7 +78,8 @@ def build_registries_yaml(registry_host: str, registry_port: int, mirrors: dict)
     The local in-cluster registry (registry_host:registry_port) is auto-injected
     as the FIRST endpoint of every declared source. containerd will request the
     image there; a 404 or connection failure falls through to the user's mirrors.
-    This is what makes a fresh worker pull preloaded images over the LAN.
+    This lets SEED build push images to the local registry on master and have
+    workers pull them over the LAN, without needing to rebuild on every node.
     """
     local_endpoint = f"http://{registry_host}:{registry_port}"
     local_key = f"{registry_host}:{registry_port}"
@@ -95,52 +97,6 @@ def build_registries_yaml(registry_host: str, registry_port: int, mirrors: dict)
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
 
-def build_preload_list(registry_host: str, registry_port: int,
-                       mirrors: dict, images: list) -> list:
-    """Compute (pull_from, push_to) for each preload image.
-
-    pull_from = same image but with its source registry replaced by the first
-    declared mirror — so master can pull successfully even when the canonical
-    source is unreachable (e.g. ghcr.io blocked → use ghcr.m.daocloud.io).
-
-    push_to = bare path under the local registry — strip the source-registry
-    prefix so containerd's mirror semantic resolves correctly: a worker pulling
-    `docker.io/rancher/mirrored-pause:3.6` requests
-    `http://<local>:5000/v2/rancher/mirrored-pause/...`, which matches the path
-    we pushed to.
-    """
-    out: list = []
-    for raw in images or []:
-        src = str(raw).strip()
-        if not src:
-            continue
-        head = src.split("/", 1)[0]
-        # Heuristic: a registry has a dot or colon (e.g. ghcr.io, host:port);
-        # anything else is shorthand for docker.io (e.g. "rancher/mirrored-pause:3.6").
-        if "/" in src and ("." in head or ":" in head):
-            src_registry = head
-            bare = src.split("/", 1)[1]
-        else:
-            src_registry = "docker.io"
-            bare = src
-        # Pick the first mirror endpoint for this source registry.
-        mirror_endpoints = (mirrors or {}).get(src_registry) or []
-        if mirror_endpoints:
-            mirror_host = mirror_endpoints[0]
-            for scheme in ("https://", "http://"):
-                if mirror_host.startswith(scheme):
-                    mirror_host = mirror_host[len(scheme):]
-                    break
-            pull_from = f"{mirror_host}/{bare}"
-        else:
-            # No mirror declared — pull from canonical source. Will fail if
-            # source is blocked; declare a mirror for the source if so.
-            pull_from = src
-        push_to = f"{registry_host}:{registry_port}/{bare}"
-        out.append({"src": src, "pull_from": pull_from, "push_to": push_to})
-    return out
-
-
 def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
     """Resolve URLs and parameters used by the playbook."""
     k3s = k3s_cfg.get("k3s", {})
@@ -148,6 +104,40 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
     multus = k3s_cfg.get("multus", {})
     cni = k3s_cfg.get("cni", {})
     china_mirror = bool(k3s_cfg.get("china_mirror", False))
+
+    # If user declared system_proxy=true in proxy_settings.yaml (host has
+    # TUN-mode mihomo/clash or similar), bypass all the mirror logic — the
+    # VM traffic transparently goes through the proxy, so canonical sources
+    # (docker.io / ghcr.io / get.k3s.io / github.com) are both reachable
+    # and more reliable than the third-party mirrors.
+    try:
+        proxy_cfg = yaml.safe_load(
+            (Path(__file__).parent.parent / "configs" / "proxy_settings.yaml").read_text()
+        ) or {}
+    except Exception:
+        proxy_cfg = {}
+    system_proxy = bool(proxy_cfg.get("system_proxy", False))
+    if system_proxy:
+        china_mirror = False
+
+    # Proxy passed through from host shell, originally loaded from
+    # configs/proxy_settings.yaml by load_provider_path.sh. May all be empty
+    # (= direct connect; framework just leaves env untouched downstream).
+    proxy_http  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")  or ""
+    proxy_https = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+    proxy_no    = os.environ.get("NO_PROXY")    or os.environ.get("no_proxy")    or ""
+    # Dict for ansible `environment:` block on plays that hit the internet.
+    # Empty dict when nothing is set = no-op for the task.
+    http_proxy_env: dict = {}
+    if proxy_http:
+        http_proxy_env["HTTP_PROXY"] = proxy_http
+        http_proxy_env["http_proxy"] = proxy_http
+    if proxy_https:
+        http_proxy_env["HTTPS_PROXY"] = proxy_https
+        http_proxy_env["https_proxy"] = proxy_https
+    if proxy_no:
+        http_proxy_env["NO_PROXY"] = proxy_no
+        http_proxy_env["no_proxy"] = proxy_no
 
     if china_mirror:
         urls = {
@@ -178,13 +168,15 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
         }
 
     registry_port = int(registry.get("port", 5000))
-    mirrors = registry.get("mirrors") or {
-        # Back-compat default if user hasn't filled in `mirrors:` yet.
-        "docker.io": ["https://docker.m.daocloud.io"],
-    }
-    docker_io_mirrors = list(mirrors.get("docker.io") or [])
-    preload_images = list(registry.get("preload_images") or [])
-    preload_list = build_preload_list(master_ip, registry_port, mirrors, preload_images)
+    if system_proxy:
+        # Direct-to-canonical mode — proxy handles reachability for us.
+        mirrors = {}
+        docker_io_mirrors = []
+    else:
+        mirrors = registry.get("mirrors") or {
+            "docker.io": ["https://docker.m.daocloud.io"],
+        }
+        docker_io_mirrors = list(mirrors.get("docker.io") or [])
 
     return {
         "ansible_python_interpreter": "/usr/bin/python3",
@@ -209,14 +201,18 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
         # Docker daemon registry-mirrors only applies to docker.io. We pass the
         # whole list; the playbook serialises it as a JSON array.
         "docker_daemon_mirrors": docker_io_mirrors,
-        # Pre-resolved preload plan: list of {src, pull_from, push_to}.
-        "registry_preload_list": preload_list,
         # CNI plugins
         "cni_type": cni.get("type", "macvlan"),
         "cni_plugins_version": "v1.6.2",
         # Multus
         "multus_install": bool(multus.get("install", True)),
         "multus_rbac_patch": bool(multus.get("rbac_patch", True)),
+        # Proxy passed through to ansible — see configs/proxy_settings.yaml.
+        # http_proxy_env is a dict (possibly empty) ready for `environment:`.
+        "http_proxy_env": http_proxy_env,
+        "proxy_http": proxy_http,
+        "proxy_https": proxy_https,
+        "proxy_no_proxy": proxy_no,
         # URL set
         **urls,
     }

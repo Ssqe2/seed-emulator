@@ -1,0 +1,11 @@
+[2026-04-08 01:37:14 UTC] === K8s BIRD start stage (node-aware concurrency) ===
+[2026-04-08 01:37:15 UTC] Grouped 9 targets into 2 nodes.
+[2026-04-08 01:37:15 UTC] Node seedvm: 6 pods
+[2026-04-08 01:37:15 UTC] Node k3s-worker: 3 pods
+[2026-04-08 01:37:17 UTC] Node k3s-worker: started 3/3 pods.
+[2026-04-08 01:37:19 UTC] Node seedvm: started 6/6 pods.
+[2026-04-08 01:37:19 UTC] Waiting 20 seconds before the first load check.
+[2026-04-08 01:37:39 UTC] Waiting for BGP convergence (load < 10.0) across 2 nodes.
+[2026-04-08 01:37:40 UTC] All cluster nodes stabilized: seedvm: 9.70 OK, k3s-worker: 1.59 OK
+[2026-04-08 01:37:46 UTC] All target pods respond to `birdc show status`.
+[2026-04-08 01:37:46 UTC] BIRD start stage completed in 31.21s.
