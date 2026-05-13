@@ -14,10 +14,6 @@
 #   * hybrid_kubevirt / Kind 场景  → 看 kubevirt / kind
 #   * 集成 mcp-server AI agent      → 看 agent
 
-# --- 进阶 CNI -------------------------------------------------------------
-cni:
-  auto_fallback: ""              # SEED_AUTO_CNI_FALLBACK   (true|false)
-
 # --- 进阶 scheduling -----------------------------------------------------
 scheduling:
   node_labels: ""                # SEED_NODE_LABELS_JSON   (JSON;strategy=custom 时必填)

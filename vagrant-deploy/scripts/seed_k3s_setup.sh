@@ -46,7 +46,7 @@ COMPILER_INVENTORY_DIR="${SEED_DIR}/configs/clusters"
 UPSTREAM_KUBECONFIG_DIR="${SEED_DIR}/output/kubeconfigs"
 UPSTREAM_CLUSTER_NAME="seedemu-k3s"
 
-# Local env (WSL detect, hypervisor bin_dir, proxy) from declarative configs
+# Local env (WSL detect, hypervisor bin_dir) from declarative configs
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/load_provider_path.sh"
 

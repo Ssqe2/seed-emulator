@@ -670,6 +670,7 @@ PY
 init_profile_context() {
   mkdir -p "${BASE_DIR}" "${VALIDATION_DIR}" "${COMPILED_DIR}" "${OBSERVE_DIR}" "${REPORT_DIR}"
   mkdir -p "${PROFILE_ROOT}"
+  rm -rf "${LATEST_LINK}"
   ln -sfn "${BASE_DIR}" "${LATEST_LINK}"
 
   export SEED_EXPERIMENT_PROFILE="${PROFILE_ID}"

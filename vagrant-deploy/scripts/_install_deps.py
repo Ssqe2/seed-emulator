@@ -132,62 +132,6 @@ libvirt:
 """
 
 
-DEFAULT_PROXY_SETTINGS = """\
-# Network proxy. Leave all fields empty if you can reach the internet directly.
-#
-# Framework propagates these to:
-#   - vagrant (box download / metadata)
-#   - K3s install curl (master + worker)
-#   - docker daemon in master (SEED image build pull)
-#   - apt-get inside VMs
-#   - VM guest login shells (/etc/environment)
-#
-# Recommended setup for mihomo / clash users (simplest):
-#   1. In your mihomo / clash GUI, enable BOTH:
-#        - "TUN mode" / "增强模式" / "Enhanced mode"
-#        - "Allow LAN" / "局域网允许连接"
-#   2. Leave http/https/no_proxy below empty.
-#   With TUN active, the proxy transparently intercepts all host network
-#   traffic — INCLUDING the VM's traffic going through vmnet NAT. The
-#   framework also configures the VM's systemd-resolved (DNSSEC=off,
-#   public DNS) so mihomo's fake-ip responses are accepted. No proxy URL
-#   needs to be filled in here.
-#
-# Manual setup (no TUN — fall back to explicit proxy URL):
-#   Fill in http/https with your proxy's LAN-reachable address. You must
-#   also (a) make mihomo/clash bind to 0.0.0.0 (Allow-LAN), and (b) allow
-#   inbound to the proxy in your host firewall, otherwise the VM can't
-#   reach it.
-
-http: ""              # e.g. http://192.168.1.100:7890
-https: ""             # e.g. http://192.168.1.100:7890
-no_proxy: ""          # e.g. localhost,127.0.0.1,192.168.0.0/16
-
-# system_proxy: true means your host has a system-wide transparent proxy
-# (TUN mode / VPN / etc.) that intercepts ALL outbound traffic, including
-# vagrant VM traffic going through vmnet NAT. When true, framework:
-#   - disables the china_mirror flag (k3s/multus/cni go to canonical source)
-#   - clears registry.mirrors (docker daemon goes direct to docker.io/ghcr.io)
-# Set to true if mihomo / clash TUN mode is on. Mirrors are unreliable
-# (occasional blob 404s, CDN flakiness); canonical-via-proxy is steadier.
-system_proxy: false
-"""
-
-
-def ensure_proxy_settings(deps_file: Path) -> None:
-    """Auto-create proxy_settings.yaml with empty defaults on first run.
-    Proxy is optional (all empty == direct connect); we never die here —
-    only ensure the file exists so future runs can read it deterministically."""
-    settings_path = deps_file.parent / "proxy_settings.yaml"
-    if not settings_path.is_file():
-        settings_path.write_text(DEFAULT_PROXY_SETTINGS)
-        print(
-            f"[install_deps] created {settings_path} — edit it if you need a "
-            f"proxy (leave empty for direct connect)",
-            file=sys.stderr,
-        )
-
-
 def ensure_provider_settings(deps_file: Path, provider: str) -> tuple[str, list[str]]:
     """Validate provider_settings.yaml exists + bin_dir for `provider` is
     filled + that directory contains an expected binary. Auto-creates the
@@ -454,7 +398,6 @@ def action_check(deps: dict, deps_file: Path) -> int:
         for p in mac_bash_problems:
             print(f"  - {p}", file=sys.stderr)
         rc = 1
-    ensure_proxy_settings(deps_file)
     provider = get_active_provider(deps_file)
     if provider == "libvirt":
         libvirt_problems = check_libvirt_iptables_backend()
@@ -536,7 +479,6 @@ def action_install(deps: dict, deps_file: Path) -> int:
         for p in mac_bash_problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
-    ensure_proxy_settings(deps_file)
     provider = get_active_provider(deps_file)
     if provider == "libvirt":
         libvirt_problems = check_libvirt_iptables_backend()

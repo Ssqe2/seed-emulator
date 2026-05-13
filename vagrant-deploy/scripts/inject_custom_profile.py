@@ -32,8 +32,7 @@ CUSTOM_KEY = "custom"
 
 def build_profile_block(topology_abspath: Path, deploy: dict, k3s: dict) -> dict:
     sched = deploy.get("scheduling") or {}
-    # cni.type lives in k3s.yaml (single source of truth shared with ansible);
-    # see scripts/gen_deploy_env.py docstring for the rationale.
+    # cni.type lives in k3s.yaml (single source of truth shared with ansible).
     cni = k3s.get("cni") or {}
     return {
         "profile_id": CUSTOM_KEY,
@@ -56,8 +55,6 @@ def build_profile_block(topology_abspath: Path, deploy: dict, k3s: dict) -> dict
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--deploy",  required=True, type=Path)
-    p.add_argument("--k3s",     required=True, type=Path,
-                   help="configs/k3s.yaml (provides cni.type)")
     p.add_argument("--profile-yaml", required=True, type=Path,
                    help="Upstream seed_k8s_profiles.yaml")
     p.add_argument("--repo-root", required=True, type=Path,
@@ -65,9 +62,12 @@ def main() -> int:
     args = p.parse_args()
 
     deploy = yaml.safe_load(args.deploy.read_text()) or {}
-    k3s = yaml.safe_load(args.k3s.read_text()) or {}
     profile_name = (deploy.get("profile") or "").strip()
     topo_raw = (deploy.get("topology_file") or "").strip()
+
+    # k3s.yaml lives next to deploy.yaml in configs/ (single source of cni.type)
+    k3s_path = args.deploy.parent / "k3s.yaml"
+    k3s = yaml.safe_load(k3s_path.read_text()) or {} if k3s_path.is_file() else {}
 
     profiles_doc = yaml.safe_load(args.profile_yaml.read_text()) or {}
     profiles_doc.setdefault("profiles", {})

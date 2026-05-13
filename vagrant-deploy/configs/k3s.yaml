@@ -47,13 +47,7 @@ cni:
   type: vxlan-overlay
 
 # Multus = K8s 多网卡 CNI。SEED router/host pod 离不开它(eth1/eth2 都靠它挂)。
+# 想拿这个 yaml 只搭裸 K3s 给别的 workload 用,关掉 install 即可。
 multus:
-  # true  → ansible 拉 Multus manifest → kubectl apply → 起 DaemonSet,每节点跑一份
-  # false → 跳过装 Multus → 集群无多网卡能力,SEED 仿真跑不起来。基本不该关。
-  install: true
-  # K3s + Multus 已知兼容性 bug:默认 ClusterRoleBinding 给 Multus 的 K8s API 权限不足,
-  # Multus pod 启动后挂网卡时报 forbidden(读 NAD/Pod/Node 权限缺)。
-  # true  → ansible 装完 Multus 后额外打一个 RBAC patch 修这个 bug
-  # false → 跳过 patch,Multus 挂网卡时会失败。基本不该关。
-  rbac_patch: true
+  install: true                  # false = 跳过装 Multus,集群无多网卡能力,SEED 仿真不能跑
 

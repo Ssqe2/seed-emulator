@@ -28,8 +28,8 @@ log()  { echo "[seed_vagrant] $*"; }
 warn() { echo "[seed_vagrant] WARN: $*" >&2; }
 die()  { echo "[seed_vagrant] ERROR: $*" >&2; exit 1; }
 
-# Load local env (WSL detect, hypervisor bin_dir, proxy) — all from
-# declarative configs/{provider,proxy}_settings.yaml. No shell-style env.sh.
+# Load local env (WSL detect, hypervisor bin_dir) — from declarative
+# configs/provider_settings.yaml. No shell-style env.sh.
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/load_provider_path.sh"
 

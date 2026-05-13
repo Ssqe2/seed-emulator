@@ -11,7 +11,6 @@ Single source of truth = the two YAML files. This generator only adapts them to 
 inventory format.
 """
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -105,40 +104,6 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
     cni = k3s_cfg.get("cni", {})
     china_mirror = bool(k3s_cfg.get("china_mirror", False))
 
-    # If user declared system_proxy=true in proxy_settings.yaml (host has
-    # TUN-mode mihomo/clash or similar), bypass all the mirror logic — the
-    # VM traffic transparently goes through the proxy, so canonical sources
-    # (docker.io / ghcr.io / get.k3s.io / github.com) are both reachable
-    # and more reliable than the third-party mirrors.
-    try:
-        proxy_cfg = yaml.safe_load(
-            (Path(__file__).parent.parent / "configs" / "proxy_settings.yaml").read_text()
-        ) or {}
-    except Exception:
-        proxy_cfg = {}
-    system_proxy = bool(proxy_cfg.get("system_proxy", False))
-    if system_proxy:
-        china_mirror = False
-
-    # Proxy passed through from host shell, originally loaded from
-    # configs/proxy_settings.yaml by load_provider_path.sh. May all be empty
-    # (= direct connect; framework just leaves env untouched downstream).
-    proxy_http  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")  or ""
-    proxy_https = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
-    proxy_no    = os.environ.get("NO_PROXY")    or os.environ.get("no_proxy")    or ""
-    # Dict for ansible `environment:` block on plays that hit the internet.
-    # Empty dict when nothing is set = no-op for the task.
-    http_proxy_env: dict = {}
-    if proxy_http:
-        http_proxy_env["HTTP_PROXY"] = proxy_http
-        http_proxy_env["http_proxy"] = proxy_http
-    if proxy_https:
-        http_proxy_env["HTTPS_PROXY"] = proxy_https
-        http_proxy_env["https_proxy"] = proxy_https
-    if proxy_no:
-        http_proxy_env["NO_PROXY"] = proxy_no
-        http_proxy_env["no_proxy"] = proxy_no
-
     if china_mirror:
         urls = {
             "k3s_install_url": "https://rancher-mirror.rancher.cn/k3s/k3s-install.sh",
@@ -168,15 +133,10 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
         }
 
     registry_port = int(registry.get("port", 5000))
-    if system_proxy:
-        # Direct-to-canonical mode — proxy handles reachability for us.
-        mirrors = {}
-        docker_io_mirrors = []
-    else:
-        mirrors = registry.get("mirrors") or {
-            "docker.io": ["https://docker.m.daocloud.io"],
-        }
-        docker_io_mirrors = list(mirrors.get("docker.io") or [])
+    mirrors = registry.get("mirrors") or {
+        "docker.io": ["https://docker.m.daocloud.io"],
+    }
+    docker_io_mirrors = list(mirrors.get("docker.io") or [])
 
     return {
         "ansible_python_interpreter": "/usr/bin/python3",
@@ -206,13 +166,6 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
         "cni_plugins_version": "v1.6.2",
         # Multus
         "multus_install": bool(multus.get("install", True)),
-        "multus_rbac_patch": bool(multus.get("rbac_patch", True)),
-        # Proxy passed through to ansible — see configs/proxy_settings.yaml.
-        # http_proxy_env is a dict (possibly empty) ready for `environment:`.
-        "http_proxy_env": http_proxy_env,
-        "proxy_http": proxy_http,
-        "proxy_https": proxy_https,
-        "proxy_no_proxy": proxy_no,
         # URL set
         **urls,
     }

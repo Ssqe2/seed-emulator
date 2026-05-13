@@ -53,22 +53,6 @@ class KubernetesCompiler(Docker):
     __service_type: str
     __image_pull_policy: str
 
-    # Build / push / distribution / overlay knobs.
-    # Were env-driven (read via ${SEED_X:-default} from emit-time build_images.sh
-    # or os.environ.get(...) inside the compiler). Now explicit constructor kwargs.
-    __build_parallelism: int
-    __docker_buildkit: int
-    __registry_push_retries: int
-    __registry_push_backoff_seconds: int
-    __registry_push_timeout_seconds: int
-    __docker_max_concurrent_uploads: int
-    __image_distribution_mode: str
-    __docker_io_mirror_endpoint: str
-    __registry_local_endpoint: str
-    __peer_ips: List[str]
-    __internet_map_source_image: str
-    __internet_map_image: str
-
     def __init__(
         self,
         registry_prefix: str = "localhost:5000",
@@ -85,24 +69,6 @@ class KubernetesCompiler(Docker):
         generate_services: bool = False,
         service_type: str = "ClusterIP",
         image_pull_policy: str = "Always",
-        # Build / push tuning — used by the emitted build_images.sh.
-        # Were ${SEED_X:-default} fallback chains; now baked in at compile time.
-        build_parallelism: int = 1,
-        docker_buildkit: int = 0,
-        registry_push_retries: int = 5,
-        registry_push_backoff_seconds: int = 5,
-        registry_push_timeout_seconds: int = 180,
-        docker_max_concurrent_uploads: int = 1,
-        image_distribution_mode: str = "registry",
-        docker_io_mirror_endpoint: str = "https://docker.m.daocloud.io",
-        registry_local_endpoint: str = "",
-        # Cross-node underlay peer IPs for VXLAN overlay.
-        # Was: 5x os.environ.get("SEED_K3S_{MASTER,WORKERN}_IP").
-        peer_ips: List[str] = None,
-        # Internet Map service image overrides.
-        # Were: os.environ.get("SEED_INTERNET_MAP_{SOURCE_,}IMAGE").
-        internet_map_source_image: str = "handsonsecurity/seedemu-multiarch-map:buildx-latest",
-        internet_map_image: str = "",
         **kwargs
     ):
         """!
@@ -169,46 +135,21 @@ class KubernetesCompiler(Docker):
         self.__service_type = service_type
         self.__image_pull_policy = image_pull_policy
 
-        # Build / push tuning — coerce to safe values (these end up baked
-        # into emit-time build_images.sh as `export X="<literal>"`).
-        self.__build_parallelism = max(1, int(build_parallelism) if build_parallelism else 1)
-        self.__docker_buildkit = 1 if int(docker_buildkit or 0) == 1 else 0
-        self.__registry_push_retries = max(1, int(registry_push_retries) if registry_push_retries else 5)
-        self.__registry_push_backoff_seconds = max(0, int(registry_push_backoff_seconds) if registry_push_backoff_seconds else 5)
-        self.__registry_push_timeout_seconds = max(1, int(registry_push_timeout_seconds) if registry_push_timeout_seconds else 180)
-        self.__docker_max_concurrent_uploads = max(1, int(docker_max_concurrent_uploads) if docker_max_concurrent_uploads else 1)
-        _valid_distribution_modes = {"registry", "preload"}
-        _dist_mode = (image_distribution_mode or "registry").strip()
-        self.__image_distribution_mode = _dist_mode if _dist_mode in _valid_distribution_modes else "registry"
-        self.__docker_io_mirror_endpoint = (docker_io_mirror_endpoint or "").strip()
-        self.__registry_local_endpoint = (registry_local_endpoint or "").strip()
-
-        # Cross-node overlay peer IPs.
-        _peer_list = peer_ips or []
-        self.__peer_ips = [str(ip).strip() for ip in _peer_list if str(ip).strip()]
-
-        # Internet Map image overrides.
-        self.__internet_map_source_image = (internet_map_source_image or
-            "handsonsecurity/seedemu-multiarch-map:buildx-latest").strip()
-        self.__internet_map_image = (internet_map_image or "").strip()
-
     def getName(self) -> str:
         return "Kubernetes"
 
     def _resolveInternetMapImages(self) -> Tuple[str, str]:
-        """Resolve source and deployment image refs for the optional Internet Map service.
-
-        Both refs come from explicit constructor kwargs (internet_map_source_image
-        and internet_map_image) — no environment variables involved.
-        """
-        source_image = self.__internet_map_source_image \
-            or "handsonsecurity/seedemu-multiarch-map:buildx-latest"
+        """Resolve source and deployment image refs for the optional Internet Map service."""
+        source_image = os.environ.get(
+            "SEED_INTERNET_MAP_SOURCE_IMAGE",
+            "handsonsecurity/seedemu-multiarch-map:buildx-latest",
+        ).strip() or "handsonsecurity/seedemu-multiarch-map:buildx-latest"
 
         default_target = source_image
         if self.__registry_prefix:
             default_target = f"{self.__registry_prefix}/seedemu-internet-map:buildx-latest"
 
-        target_image = self.__internet_map_image or default_target
+        target_image = os.environ.get("SEED_INTERNET_MAP_IMAGE", default_target).strip() or default_target
         return source_image, target_image
 
 
@@ -289,27 +230,26 @@ class KubernetesCompiler(Docker):
             f.write("#!/usr/bin/env bash\n")
             f.write("set -euo pipefail\n")
             # Allow callers to override BuildKit/parallelism without editing generated artifacts.
-            # All tuning values below are baked at compile time from the
-            # KubernetesCompiler constructor kwargs (build_parallelism,
-            # docker_buildkit, registry_push_*, image_distribution_mode,
-            # docker_io_mirror_endpoint, registry_local_endpoint).
-            # The generated script no longer reads `${SEED_X:-default}` env
-            # fallback chains — it just executes with the literal values the
-            # compiler already validated.
-            f.write(f'export DOCKER_BUILDKIT="{self.__docker_buildkit}"\n')
-            f.write(f'PARALLELISM="{self.__build_parallelism}"\n')
-            f.write(f'export REGISTRY_PUSH_RETRIES="{self.__registry_push_retries}"\n')
-            f.write(f'export REGISTRY_PUSH_BACKOFF_SECONDS="{self.__registry_push_backoff_seconds}"\n')
-            f.write(f'export REGISTRY_PUSH_TIMEOUT_SECONDS="{self.__registry_push_timeout_seconds}"\n')
-            f.write(f'export SEED_IMAGE_DISTRIBUTION_MODE="{self.__image_distribution_mode}"\n')
-            f.write(f'export SEED_DOCKER_MAX_CONCURRENT_UPLOADS="{self.__docker_max_concurrent_uploads}"\n')
+            f.write('export DOCKER_BUILDKIT="${SEED_DOCKER_BUILDKIT:-0}"\n')
+            f.write('PARALLELISM="${SEED_BUILD_PARALLELISM:-1}"\n')
+            f.write('if ! [[ "${PARALLELISM}" =~ ^[0-9]+$ ]]; then PARALLELISM=1; fi\n')
+            f.write('export REGISTRY_PUSH_RETRIES="${SEED_REGISTRY_PUSH_RETRIES:-5}"\n')
+            f.write('if ! [[ "${REGISTRY_PUSH_RETRIES}" =~ ^[0-9]+$ ]]; then REGISTRY_PUSH_RETRIES=5; fi\n')
+            f.write('export REGISTRY_PUSH_BACKOFF_SECONDS="${SEED_REGISTRY_PUSH_BACKOFF_SECONDS:-5}"\n')
+            f.write('if ! [[ "${REGISTRY_PUSH_BACKOFF_SECONDS}" =~ ^[0-9]+$ ]]; then REGISTRY_PUSH_BACKOFF_SECONDS=5; fi\n')
+            f.write('export REGISTRY_PUSH_TIMEOUT_SECONDS="${SEED_REGISTRY_PUSH_TIMEOUT_SECONDS:-180}"\n')
+            f.write('if ! [[ "${REGISTRY_PUSH_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]]; then REGISTRY_PUSH_TIMEOUT_SECONDS=180; fi\n')
+            f.write('export SEED_IMAGE_DISTRIBUTION_MODE="${SEED_IMAGE_DISTRIBUTION_MODE:-registry}"\n')
+            f.write('if [[ "${SEED_IMAGE_DISTRIBUTION_MODE}" != "registry" && "${SEED_IMAGE_DISTRIBUTION_MODE}" != "preload" ]]; then export SEED_IMAGE_DISTRIBUTION_MODE="registry"; fi\n')
+            f.write('export SEED_DOCKER_MAX_CONCURRENT_UPLOADS="${SEED_DOCKER_MAX_CONCURRENT_UPLOADS:-1}"\n')
+            f.write('if ! [[ "${SEED_DOCKER_MAX_CONCURRENT_UPLOADS}" =~ ^[0-9]+$ ]]; then export SEED_DOCKER_MAX_CONCURRENT_UPLOADS=1; fi\n')
             # Export so the inline Python snippet (daemon.json edit) can see it.
-            f.write(f'export SEED_DOCKER_IO_MIRROR_ENDPOINT="{self.__docker_io_mirror_endpoint}"\n')
+            f.write('export SEED_DOCKER_IO_MIRROR_ENDPOINT="${SEED_DOCKER_IO_MIRROR_ENDPOINT:-https://docker.m.daocloud.io}"\n')
             f.write('MIRROR_HOST="${SEED_DOCKER_IO_MIRROR_ENDPOINT#http://}"\n')
             f.write('MIRROR_HOST="${MIRROR_HOST#https://}"\n')
             # Export so the inline Python snippet (daemon.json edit) can see it.
             f.write(f'export REGISTRY_PREFIX="{self.__registry_prefix}"\n')
-            f.write(f'export REGISTRY_LOCAL_ENDPOINT="{self.__registry_local_endpoint}"\n')
+            f.write('export REGISTRY_LOCAL_ENDPOINT="${SEED_REGISTRY_LOCAL_ENDPOINT:-}"\n')
             f.write("\n")
             f.write("docker_pull() {\n")
             f.write("  local image=\"$1\"\n")
@@ -362,16 +302,14 @@ class KubernetesCompiler(Docker):
             f.write("  if ! command -v systemctl >/dev/null 2>&1; then return 0; fi\n")
             f.write("  mkdir -p /etc/docker\n")
             f.write("  local result\n")
-            # Pass values via positional argv rather than env reads, so the
-            # generated Python snippet stays free of os.environ.get(SEED_*).
-            f.write("  result=\"$(python3 - \"${REGISTRY_PREFIX}\" \"${SEED_DOCKER_IO_MIRROR_ENDPOINT}\" \"${SEED_DOCKER_MAX_CONCURRENT_UPLOADS}\" <<'PY'\n")
+            f.write("  result=\"$(python3 - <<'PY'\n")
             f.write("import json\n")
-            f.write("import sys\n")
             f.write("from pathlib import Path\n")
+            f.write("import os\n")
             f.write("\n")
-            f.write("registry = sys.argv[1] if len(sys.argv) > 1 else ''\n")
-            f.write("mirror = sys.argv[2] if len(sys.argv) > 2 else ''\n")
-            f.write("max_uploads = sys.argv[3] if len(sys.argv) > 3 else '1'\n")
+            f.write("registry = os.environ.get('REGISTRY_PREFIX', '')\n")
+            f.write("mirror = os.environ.get('SEED_DOCKER_IO_MIRROR_ENDPOINT', '')\n")
+            f.write("max_uploads = os.environ.get('SEED_DOCKER_MAX_CONCURRENT_UPLOADS', '1')\n")
             f.write("try:\n")
             f.write("    max_uploads_value = max(1, int(max_uploads))\n")
             f.write("except Exception:\n")
@@ -771,12 +709,12 @@ spec:
             return
 
         # 2) Cluster node underlay IPs (peer endpoints of every VXLAN tunnel).
-        # Comes from the explicit `peer_ips` constructor kwarg — caller (the
-        # topology / driver) is responsible for passing every K3s node's
-        # private IP as a list. Duplicates filtered, empty entries dropped.
+        # Read from cluster-inventory env vars set by seed_k8s_cluster_inventory.
         peer_ips: List[str] = []
-        for v in (self.__peer_ips or []):
-            v = str(v or "").strip()
+        for var in ("SEED_K3S_MASTER_IP", "SEED_K3S_WORKER1_IP",
+                    "SEED_K3S_WORKER2_IP", "SEED_K3S_WORKER3_IP",
+                    "SEED_K3S_WORKER4_IP"):
+            v = os.environ.get(var, "").strip()
             if v and v not in peer_ips:
                 peer_ips.append(v)
 

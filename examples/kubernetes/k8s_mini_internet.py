@@ -2,6 +2,7 @@
 # encoding: utf-8
 
 import os
+import json
 import sys
 
 # Copied from examples/internet/B00_mini_internet/mini_internet.py
@@ -24,56 +25,23 @@ from seedemu.core import Emulator
 from seedemu.utilities import Makers
 
 
-def run(
-    registry_prefix: str = "localhost:5001",
-    namespace: str = "seedemu",
-    cluster_name: str = "seedemu-kvtest",
-    cni_type: str = "bridge",
-    cni_master_interface: str = "eth0",
-    image_pull_policy: str = "Always",
-    scheduling_strategy: str = SchedulingStrategy.BY_AS_HARD,
-    node_labels: dict = None,
-    force_colocate: bool = False,
-    single_node: str = None,
-    hosts_per_as: int = 2,
-    output_dir: str = None,
-    dumpfile: str = None,
-):
-    """!
-    @brief Build the mini_internet topology and compile it for Kubernetes.
+def _parse_node_labels_json(raw: str):
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid SEED_NODE_LABELS_JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("SEED_NODE_LABELS_JSON must be a JSON object")
+    normalized = {}
+    for key, value in data.items():
+        if not isinstance(value, dict):
+            raise ValueError(f"SEED_NODE_LABELS_JSON['{key}'] must be an object of label->value")
+        normalized[str(key)] = {str(k): str(v) for k, v in value.items()}
+    return normalized
 
-    @param registry_prefix (optional) where to push compiled images. Default
-        to "localhost:5001".
-    @param namespace (optional) K8s namespace to deploy into. Default to
-        "seedemu".
-    @param cluster_name (optional) cluster name used by the force_colocate
-        branch to derive the default single_node hostname. Default to
-        "seedemu-kvtest".
-    @param cni_type (optional) CNI plugin type the compiler emits in NADs:
-        "vxlan-overlay" | "macvlan" | "ipvlan" | "bridge" | "host-local".
-        Default to "bridge".
-    @param cni_master_interface (optional) parent interface for macvlan/ipvlan.
-        Default to "eth0".
-    @param image_pull_policy (optional) K8s imagePullPolicy. Default to "Always".
-    @param scheduling_strategy (optional) SEED scheduling strategy. Default to
-        SchedulingStrategy.BY_AS_HARD.
-    @param node_labels (optional) explicit per-ASN node labels dict for the
-        compiler's scheduling layer. None = empty (compiler may compute
-        defaults). Driver reads this from advanced.yaml's
-        scheduling.node_labels (already a dict in yaml — no JSON middle step).
-    @param force_colocate (optional) when True AND node_labels is empty AND
-        cni_type is bridge/host-local, force all 17 mini_internet ASNs onto
-        the single_node host and switch scheduling_strategy to CUSTOM.
-        Useful for one-node Kind / dev setups. Default to False.
-    @param single_node (optional) target hostname when force_colocate is on.
-        None = derive as f"{cluster_name}-control-plane".
-    @param hosts_per_as (optional) how many host pods to create per stub AS.
-        Default to 2.
-    @param output_dir (optional) where to write compiled k8s.yaml +
-        build_images.sh. None = sibling "output_mini_internet/" dir.
-    @param dumpfile (optional) if given, dump the emulator state to this file
-        instead of compiling. Default to None (compile).
-    """
+def run(dumpfile=None, hosts_per_as=2):
     # Initialize Emulator
     emu   = Emulator()
     ebgp  = Ebgp()
@@ -198,31 +166,25 @@ def run(
     emu.addLayer(Ibgp())
     emu.addLayer(Ospf())
 
-    if dumpfile is not None:
-        emu.dump(dumpfile)
-        return
-
     emu.render()
 
     ###############################################################################
     # Kubernetes Compilation
 
-    # Normalize string-typed inputs the same way the old env-reading code did,
-    # so callers that pass arbitrary case (e.g. "Bridge") still hit the same
-    # downstream comparisons.
-    cni_type = str(cni_type).strip().lower()
-    cni_master_interface = str(cni_master_interface).strip()
-    image_pull_policy = str(image_pull_policy).strip()
-    scheduling_strategy = str(scheduling_strategy).strip().lower()
-    node_labels = dict(node_labels) if node_labels else {}
+    registry_prefix = os.environ.get("SEED_REGISTRY", "localhost:5001")
+    namespace = os.environ.get("SEED_NAMESPACE", "seedemu")
+    cluster_name = os.environ.get("SEED_CLUSTER_NAME", "seedemu-kvtest")
+    cni_type = os.environ.get("SEED_CNI_TYPE", "bridge").strip().lower()
+    cni_master_interface = os.environ.get("SEED_CNI_MASTER_INTERFACE", "eth0").strip()
+    # Using a fixed ':latest' tag across multiple compiled topologies can lead to stale
+    # images when the cluster caches tags. Default to Always for correctness.
+    image_pull_policy = os.environ.get("SEED_IMAGE_PULL_POLICY", "Always").strip()
+    scheduling_strategy = os.environ.get("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS_HARD).strip().lower()
+    node_labels = _parse_node_labels_json(os.environ.get("SEED_NODE_LABELS_JSON", ""))
+    force_colocate = os.environ.get("SEED_FORCE_COLOCATE", "false").strip().lower() in {"1", "true", "yes"}
 
-    # force_colocate branch: pin every AS to a single K8s node. Used by
-    # one-node Kind setups / dev playgrounds where cross-node scheduling
-    # is unwanted. Triggers only when caller has not already supplied
-    # node_labels AND cni_type is single-node-only (bridge/host-local).
     if force_colocate and not node_labels and cni_type in {"bridge", "host-local"}:
-        if not single_node:
-            single_node = f"{cluster_name}-control-plane"
+        single_node = os.environ.get("SEED_SINGLE_NODE", f"{cluster_name}-control-plane").strip()
         colocate_asns = list(range(100, 106)) + [2, 3, 4, 11, 12, 150, 151, 152, 153, 154, 160, 161, 162, 163, 164, 170, 171]
         node_labels = {str(asn): {"kubernetes.io/hostname": single_node} for asn in colocate_asns}
         scheduling_strategy = SchedulingStrategy.CUSTOM
@@ -241,8 +203,9 @@ def run(
         image_pull_policy=image_pull_policy,
     )
 
-    # Resolve output directory: None = sibling dir of this script.
-    if output_dir is None:
+    # Compile to the output directory.
+    output_dir = os.environ.get("SEED_OUTPUT_DIR")
+    if not output_dir:
         output_dir = os.path.join(os.path.dirname(__file__), 'output_mini_internet')
     elif not os.path.isabs(output_dir):
         output_dir = os.path.join(os.path.dirname(__file__), output_dir)
@@ -253,9 +216,9 @@ def run(
     print(f"Namespace: {namespace}")
 
 if __name__ == "__main__":
-    # Direct invocation runs with defaults — sibling output_mini_internet/
-    # under examples/kubernetes/. Configuration (cni_type, namespace,
-    # registry_prefix, hosts_per_as, force_colocate, node_labels, ...) is
-    # sourced from a caller (vagrant-deploy/scripts/run_topology.py reads
-    # our yaml configs and invokes run() with explicit kwargs).
-    run()
+    hosts_per_as_env = os.environ.get("SEED_HOSTS_PER_AS", "2")
+    try:
+        hosts_per_as = int(hosts_per_as_env)
+    except ValueError as exc:
+        raise ValueError(f"Invalid SEED_HOSTS_PER_AS: {hosts_per_as_env}") from exc
+    run(hosts_per_as=hosts_per_as)
