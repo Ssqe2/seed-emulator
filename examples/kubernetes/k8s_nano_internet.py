@@ -147,7 +147,10 @@ def run():
     image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
 
     # defined-by-topology (yaml empty -> topology-author default)
-    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.NONE)
+    # AUTO = soft affinity (same-ASN/same-role 软偏好同 node) + topology spread.
+    # 比 NONE 更适合 SEED 多节点场景:同 AS 倾向落同节点 → AS 内部网络免去
+    # 跨节点 L2;同时不强制 node_labels mapping,缺 mapping 不会编译失败。
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.AUTO)
     node_labels           = _env_json("SEED_NODE_LABELS_JSON", None)
     default_resources     = _env_json("SEED_DEFAULT_RESOURCES", None)
     local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
