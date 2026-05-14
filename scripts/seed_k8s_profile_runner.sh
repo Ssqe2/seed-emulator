@@ -889,6 +889,81 @@ run_generic_build() {
       return 1
     fi
 
+    # preload 模式:build_images.sh 只 build 不 push,把镜像 import 到每个
+    # K3s 节点的 containerd(master 本地 import + worker 通过 master save→pipe→
+    # worker import,跟 validate_k3s_mini_internet_multinode 的 preload 同思路
+    # 但适配任意节点数 — 节点列表从 SEED_CLUSTER_NODES_JSON 解析)。
+    if [ "${SEED_IMAGE_DISTRIBUTION_MODE:-registry}" = "preload" ]; then
+      log "preload mode: importing images into containerd on each cluster node"
+      local preload_log node_ip
+      local -a cluster_ips
+      preload_log="${VALIDATION_DIR}/preload.log"
+      : > "${preload_log}"
+
+      mapfile -t cluster_ips < <(python3 - <<'PY'
+import json, os
+try:
+    nodes = json.loads(os.environ.get("SEED_CLUSTER_NODES_JSON", "[]"))
+except Exception:
+    nodes = []
+for n in nodes:
+    ip = (n.get("management_ip") or "").strip()
+    if ip:
+        print(ip)
+PY
+)
+      if [ "${#cluster_ips[@]}" -eq 0 ]; then
+        log "preload: SEED_CLUSTER_NODES_JSON empty; falling back to master only"
+        cluster_ips=("${SEED_K3S_MASTER_IP}")
+      fi
+
+      for node_ip in "${cluster_ips[@]}"; do
+        log "  preload → ${node_ip}"
+        if [ "${node_ip}" = "${SEED_K3S_MASTER_IP}" ]; then
+          # master 节点:在本机 docker save | k3s ctr images import
+          if ! ssh \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o IdentityAgent=none -o ConnectTimeout=10 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              -i "${SEED_K3S_SSH_KEY}" \
+              "${SEED_K3S_USER}@${node_ip}" \
+              "sudo -n bash -lc 'set -euo pipefail; cd \"${remote_work_dir}\"; xargs -r docker save < images.txt | k3s ctr images import -'" \
+              >> "${preload_log}" 2>&1; then
+            write_runner_artifacts "build" "FAIL" "IMAGE_PRELOAD_FAILED" "preload_master_import_failed" "${preload_log}" \
+              "scripts/seed_k8s_profile_runner.sh ${PROFILE_ID} build" "tail -n 200 ${preload_log}"
+            return 1
+          fi
+        else
+          # worker:master 上 docker save 流式 pipe 到 worker k3s ctr import
+          if ! ssh \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o IdentityAgent=none -o ConnectTimeout=10 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              -i "${SEED_K3S_SSH_KEY}" \
+              "${SEED_K3S_USER}@${SEED_K3S_MASTER_IP}" \
+              "sudo -n bash -lc 'set -euo pipefail; cd \"${remote_work_dir}\"; xargs -r docker save < images.txt'" \
+              2>>"${preload_log}" \
+            | ssh \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o IdentityAgent=none -o ConnectTimeout=10 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              -i "${SEED_K3S_SSH_KEY}" \
+              "${SEED_K3S_USER}@${node_ip}" \
+              "sudo -n k3s ctr images import -" \
+              >> "${preload_log}" 2>&1; then
+            write_runner_artifacts "build" "FAIL" "IMAGE_PRELOAD_FAILED" "preload_worker_${node_ip}_import_failed" "${preload_log}" \
+              "scripts/seed_k8s_profile_runner.sh ${PROFILE_ID} build" "tail -n 200 ${preload_log}"
+            return 1
+          fi
+        fi
+      done
+
+      log "preload complete: ${#cluster_ips[@]} node(s)"
+    fi
+
     return 0
   fi
 
