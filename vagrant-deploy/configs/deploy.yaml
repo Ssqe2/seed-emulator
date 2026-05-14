@@ -24,7 +24,7 @@ topology_file: "../examples/kubernetes/k8s_nano_internet.py"
 compiler:
   use_multus: true                       # SEED_USE_MULTUS
                                          # SEED 多网卡仿真必需,基本不该关
-  internet_map_enabled: false            # SEED_INTERNET_MAP_ENABLED
+  internet_map_enabled: true            # SEED_INTERNET_MAP_ENABLED
                                          # true 时拓扑会显式调 attachInternetMap()
                                          # 生成 internet-map Deployment + NodePort Service
 

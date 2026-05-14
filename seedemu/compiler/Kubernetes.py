@@ -459,7 +459,10 @@ class KubernetesCompiler(Docker):
             f.write("    retry_push \"${push_image}\"\n")
             f.write("  fi\n")
             f.write("}\n")
-            f.write("export -f registry_probe wait_for_registry local_push_image_ref docker_push_with_timeout retry_push seedemu_build_and_push seedemu_copy_and_push_image\n")
+            # ensure_image_present / docker_pull / mirror_image_name 也必须 export -f,
+            # 否则 seedemu_copy_and_push_image 在 xargs -P 并行 subshell 里调它们会
+            # 报 "command not found"(internet_map_enabled=true + parallelism>=2 触发)。
+            f.write("export -f docker_pull mirror_image_name ensure_image_present registry_probe wait_for_registry local_push_image_ref docker_push_with_timeout retry_push seedemu_build_and_push seedemu_copy_and_push_image\n")
             f.write("\n")
             f.write("prepare_dummy_image() {\n")
             f.write("  local base_image=\"$1\"\n")

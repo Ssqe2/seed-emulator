@@ -159,11 +159,8 @@ def run():
     emu.addLayer(web)
     emu.render()
 
-    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
-    # Empty/missing env -> topology-author default below.
-
-    # Cluster infrastructure (must be injected from cluster inventory)
-    registry_prefix       = _env_str("SEED_REGISTRY", "localhost:5000")
+    # Cluster infrastructure (env-driven, preserved from refactor - injected by deployment framework)
+    registry_prefix       = _env_str("SEED_REGISTRY", "localhost:5001")
     namespace             = _env_str("SEED_NAMESPACE", "seedemu-kvtest")
     cni_type              = _env_str("SEED_CNI_TYPE", "bridge").lower()
     if cni_type not in VALID_CNI_TYPES:
@@ -171,37 +168,29 @@ def run():
             f"Invalid SEED_CNI_TYPE '{cni_type}'. Supported values: {sorted(VALID_CNI_TYPES)}"
         )
     cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
-
-    # Deployment switches (yaml-defined)
-    use_multus            = _env_bool("SEED_USE_MULTUS", True)
-    internet_map_enabled  = _env_bool("SEED_INTERNET_MAP_ENABLED", False)
     image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
 
-    # Topology-author defaults: this demo uses CUSTOM scheduling with fixed
-    # node_labels that pin the KubeVirt VM router on the control-plane and
-    # other pods on workers, plus a default resource budget.
-    default_node_labels = {
+    # Topology-author decisions (hardcoded, from the original file).
+    # node_labels is constructed from KubeVirt-specific env knobs
+    # (SEED_VM_NODE / SEED_WORKER_A / SEED_WORKER_B) which feed the
+    # CUSTOM scheduling: pin the KubeVirt VM router on the control-plane
+    # and other pods on the workers.
+    scheduling_strategy = SchedulingStrategy.CUSTOM
+    node_labels = {
         "150_router0": {"kubernetes.io/hostname": vm_node},
         "150_web": {"kubernetes.io/hostname": worker_a},
         "151_router0": {"kubernetes.io/hostname": worker_b},
         "151_web": {"kubernetes.io/hostname": worker_b},
         "100_ix100": {"kubernetes.io/hostname": worker_a},
     }
-    default_resources_topology = {
+    default_resources = {
         "requests": {"cpu": "100m", "memory": "128Mi"},
         "limits": {"cpu": "500m", "memory": "1Gi"},
     }
-
-    # defined-by-topology (yaml empty -> topology-author default)
-    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.CUSTOM).lower()
-    node_labels           = _env_json("SEED_NODE_LABELS_JSON", default_node_labels)
-    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", default_resources_topology)
-    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
-
-    # K8s Service exposure
-    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
-    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
-    service_type          = _env_str("SEED_SERVICE_TYPE", "NodePort")
+    use_multus = True
+    internet_map_enabled = False
+    generate_services = True
+    local_link_cni_type = None
 
     k8s = KubernetesCompiler(
         registry_prefix=registry_prefix,
@@ -215,7 +204,6 @@ def run():
         local_link_cni_type=local_link_cni_type,
         cni_master_interface=cni_master_interface,
         generate_services=generate_services,
-        service_type=service_type,
         image_pull_policy=image_pull_policy,
     )
 
@@ -224,13 +212,6 @@ def run():
         output_dir = os.path.join(os.path.dirname(__file__), "output_kubevirt_hybrid")
     elif not os.path.isabs(output_dir):
         output_dir = os.path.join(os.path.dirname(__file__), output_dir)
-    # Generate internet-map Deployment + NodePort Service if requested (K8s
-    # compiler requires explicit attachInternetMap() call, unlike Docker which
-    # does it automatically when internetMapEnabled=True).
-    # Must be called BEFORE emu.compile() so the manifest/build-command appends
-    # get serialized into k8s.yaml and build_images.sh during _doCompile().
-    if internet_map_enabled:
-        k8s.attachInternetMap()
 
     emu.compile(k8s, output_dir, override=True)
 

@@ -218,7 +218,7 @@ profiles:
     compile_script: "/mnt/d/h1acat/\u6BD5\u8BBE/seedworkspace/seed-emulator/examples/kubernetes/k8s_nano_internet.py"
     default_namespace: seedemu-custom
     default_cni_type: vxlan-overlay
-    default_scheduling_strategy: ''
+    default_scheduling_strategy: defined_by_topology_file
     verify_mode: generic_ready
     verify_targets:
       min_deployments_available: 1

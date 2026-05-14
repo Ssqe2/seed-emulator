@@ -107,44 +107,33 @@ def run(cni_type_arg: str = "bridge"):
     ###############################################################################
     # Kubernetes Compilation with Multi-Node Features
 
-    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
-    # Empty/missing env -> topology-author default below.
-
-    # Cluster infrastructure (must be injected from cluster inventory)
+    # Cluster infrastructure (env-driven, preserved from refactor - injected by deployment framework)
     registry_prefix       = _env_str("SEED_REGISTRY", "127.0.0.1:5001")
     namespace             = _env_str("SEED_NAMESPACE", "seedemu")
     # CLI-passed cni_type overrides default; SEED_CNI_TYPE env still wins
     # over the CLI arg to keep yaml-driven deploys deterministic.
     cni_type              = _env_str("SEED_CNI_TYPE", cni_type_arg).lower()
     cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
-
-    # Deployment switches (yaml-defined)
-    use_multus            = _env_bool("SEED_USE_MULTUS", True)
-    internet_map_enabled  = _env_bool("SEED_INTERNET_MAP_ENABLED", True)
     image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
 
-    # Topology-author defaults: this demo pins AS-150/151 to specific nodes
-    # and applies a default resource budget. Multi-node deployment exemplar.
-    default_node_labels = {
+    # Topology-author decisions (hardcoded, from the original file).
+    # This demo pins AS-150/151/2 to specific nodes (node1/node2/node3)
+    # via BY_AS scheduling and applies a default resource budget.
+    scheduling_strategy = SchedulingStrategy.BY_AS
+    node_labels = {
         "150": {"kubernetes.io/hostname": "node1"},
         "151": {"kubernetes.io/hostname": "node2"},
-        "2": {"kubernetes.io/hostname": "node3"},
+        "2": {"kubernetes.io/hostname": "node3"},  # Transit AS on node3
     }
-    default_resources_topology = {
+    default_resources = {
         "requests": {"cpu": "100m", "memory": "128Mi"},
         "limits": {"cpu": "500m", "memory": "512Mi"},
     }
-
-    # defined-by-topology (yaml empty -> topology-author default)
-    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS).lower()
-    node_labels           = _env_json("SEED_NODE_LABELS_JSON", default_node_labels)
-    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", default_resources_topology)
-    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
-
-    # K8s Service exposure (this demo uses ClusterIP by topology-author choice)
-    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
-    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
-    service_type          = _env_str("SEED_SERVICE_TYPE", "ClusterIP")
+    use_multus = True
+    internet_map_enabled = True
+    generate_services = True
+    service_type = "ClusterIP"
+    local_link_cni_type = None
 
     output_dir = os.environ.get("SEED_OUTPUT_DIR")
     if not output_dir:
@@ -168,13 +157,12 @@ def run(cni_type_arg: str = "bridge"):
         image_pull_policy=image_pull_policy,
     )
 
-    # Generate internet-map Deployment + NodePort Service if requested (K8s
-    # compiler requires explicit attachInternetMap() call, unlike Docker which
-    # does it automatically when internetMapEnabled=True).
+    # Generate internet-map Deployment + NodePort Service (K8s compiler
+    # requires explicit attachInternetMap() call, unlike Docker which does
+    # it automatically when internetMapEnabled=True).
     # Must be called BEFORE emu.compile() so the manifest/build-command appends
     # get serialized into k8s.yaml and build_images.sh during _doCompile().
-    if internet_map_enabled:
-        k8s.attachInternetMap()
+    k8s.attachInternetMap()
 
     # Compile
     emu.compile(k8s, output_dir, override=True)
@@ -188,7 +176,7 @@ Output Directory: {output_dir}
 Registry Prefix: {registry_prefix}
 Namespace: {namespace}
 CNI Type: {cni_type}
-Scheduling Strategy: {scheduling_strategy}
+Scheduling Strategy: CUSTOM (by AS number)
 
 Node Placement:
   - AS150 (web + router) -> node1
