@@ -48,6 +48,11 @@ services:
   type: NodePort                         # SEED_SERVICE_TYPE
                                          # NodePort | ClusterIP
 
+  # internet-map UI 本机访问端口。compiler.internet_map_enabled=true 时,
+  # seed_all.sh sim 跑完会自动 `kubectl port-forward` 后台暴露 UI 到这个本机
+  # 端口,浏览器开 http://localhost:<port>/ 即可。0 = 不暴露(用户自己 port-forward)
+  internet_map_local_port: 8080
+
 # --- CNI 部署决策 ---------------------------------------------------------
 # cni.type:部署时 SEED secondary network 用哪种 CNI 实现。必须是
 # k3s.yaml.cni.install 列表里的一员(集群构建时装好的工具箱)。
