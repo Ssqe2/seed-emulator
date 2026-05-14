@@ -80,6 +80,15 @@ cat > "${TMP_SCRIPT}" <<EOF
 #!/bin/sh
 set -eu
 
+# 0) Force bridge-nf-call-iptables=0 before anything else.
+# docker daemon install (ansible step 6) sets this to 1 at startup, which
+# pipes bridge L2 frames through netfilter — they get DROPped by K3s /
+# flannel iptables FORWARD rules, so SEED vxlan-overlay packets never
+# reach the peer node. Re-set to 0 every sim so we recover from docker /
+# K3s / system-reboot stomps.
+sysctl -w net.bridge.bridge-nf-call-iptables=0 >/dev/null 2>&1 || true
+sysctl -w net.bridge.bridge-nf-call-ip6tables=0 >/dev/null 2>&1 || true
+
 PEERS="${PEERS}"
 
 # 1) Identify our own node by matching one of the peer IPs against local ifaces.
