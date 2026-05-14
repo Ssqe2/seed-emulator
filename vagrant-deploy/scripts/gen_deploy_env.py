@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Translate the three deploy YAML files into shell `export SEED_*=...` lines.
+"""Translate the deploy YAML files into shell `export SEED_*=...` lines.
 
 Reads:
   configs/deploy.yaml    -- common knobs the user touches every run
@@ -9,20 +9,15 @@ Reads:
 Each YAML field maps to one SEED_* environment variable. Empty values are
 skipped so the upstream defaults stay in effect.
 
+Note: configs/k3s.yaml is NOT read here. It's a pure cluster-build-time
+config consumed by ansible/seed_k3s.yml. Deployment-time CNI choice lives
+in deploy.yaml.cni.type and must reference an entry under k3s.yaml.cni.install.
+
 Usage:
     eval "$(python3 scripts/gen_deploy_env.py \\
         --deploy   configs/deploy.yaml \\
         --advanced configs/advanced.yaml \\
         --tuning   configs/tuning.yaml)"
-
-Any of the --deploy / --advanced / --tuning arguments may be omitted (or
-point to a missing file); we just skip that layer.
-
-Variables intentionally NOT mapped (they live elsewhere or are not user-facing):
-    - KVM-related (replaced by Vagrant)
-    - K3s-install-related (replaced by scripts/ansible/seed_k3s.yml)
-    - Cluster inventory (auto-exported by seed_k8s_cluster_inventory.sh)
-    - Internal plumbing / runtime-computed paths
 """
 from __future__ import annotations
 
@@ -40,6 +35,8 @@ DEPLOY_MAPPING: list[tuple[tuple[str, ...], str]] = [
     # Profile selection
     (("profile",),                                "SEED_EXPERIMENT_PROFILE"),
     (("namespace",),                              "SEED_NAMESPACE"),
+    # CNI 部署决策(集群构建时装哪些 CNI 见 k3s.yaml.cni.install)
+    (("cni", "type"),                             "SEED_CNI_TYPE"),
     # Image
     (("image", "pull_policy"),                    "SEED_IMAGE_PULL_POLICY"),
     (("image", "distribution_mode"),              "SEED_IMAGE_DISTRIBUTION_MODE"),
@@ -47,16 +44,6 @@ DEPLOY_MAPPING: list[tuple[tuple[str, ...], str]] = [
     (("advanced", "build_parallelism"),           "SEED_BUILD_PARALLELISM"),
     (("advanced", "docker_buildkit"),             "SEED_DOCKER_BUILDKIT"),
     (("advanced", "run_id"),                      "SEED_RUN_ID"),
-]
-
-
-# Fields read from configs/k3s.yaml.
-# k3s.yaml is the canonical source for infrastructure-layer choices (what
-# CNI plugin / bridge type ansible installs on each node). The SEED upstream
-# compiler also needs to know the same value (to emit NADs of the matching
-# type), so we re-export it here as SEED_CNI_TYPE — same value, one source.
-K3S_MAPPING: list[tuple[tuple[str, ...], str]] = [
-    (("cni", "type"),                             "SEED_CNI_TYPE"),
 ]
 
 
@@ -179,14 +166,12 @@ def lines_for(cfg_path: Path | None, mapping: list[tuple[tuple[str, ...], str]])
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--deploy",   type=Path, default=None)
-    p.add_argument("--k3s",      type=Path, default=None)
     p.add_argument("--advanced", type=Path, default=None)
     p.add_argument("--tuning",   type=Path, default=None)
     args = p.parse_args()
 
     all_lines: list[str] = []
     all_lines += lines_for(args.deploy,   DEPLOY_MAPPING)
-    all_lines += lines_for(args.k3s,      K3S_MAPPING)
     all_lines += lines_for(args.advanced, ADVANCED_MAPPING)
     all_lines += lines_for(args.tuning,   TUNING_MAPPING)
 

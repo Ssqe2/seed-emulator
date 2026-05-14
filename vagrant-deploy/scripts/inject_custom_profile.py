@@ -30,10 +30,12 @@ import yaml
 CUSTOM_KEY = "custom"
 
 
-def build_profile_block(topology_abspath: Path, deploy: dict, k3s: dict) -> dict:
+def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
     sched = deploy.get("scheduling") or {}
-    # cni.type lives in k3s.yaml (single source of truth shared with ansible).
-    cni = k3s.get("cni") or {}
+    # cni.type is a deployment-time decision (lives in deploy.yaml).
+    # The cluster-build-time CNI install list (k3s.yaml.cni.install) is a
+    # separate concern handled by ansible.
+    cni = deploy.get("cni") or {}
     return {
         "profile_id": CUSTOM_KEY,
         "support_tier": "tier3",
@@ -65,10 +67,6 @@ def main() -> int:
     profile_name = (deploy.get("profile") or "").strip()
     topo_raw = (deploy.get("topology_file") or "").strip()
 
-    # k3s.yaml lives next to deploy.yaml in configs/ (single source of cni.type)
-    k3s_path = args.deploy.parent / "k3s.yaml"
-    k3s = yaml.safe_load(k3s_path.read_text()) or {} if k3s_path.is_file() else {}
-
     profiles_doc = yaml.safe_load(args.profile_yaml.read_text()) or {}
     profiles_doc.setdefault("profiles", {})
 
@@ -85,7 +83,7 @@ def main() -> int:
         if not topo_abs.exists():
             print(f"ERROR: topology_file not found: {topo_abs}", file=sys.stderr)
             return 1
-        profiles_doc["profiles"][CUSTOM_KEY] = build_profile_block(topo_abs, deploy, k3s)
+        profiles_doc["profiles"][CUSTOM_KEY] = build_profile_block(topo_abs, deploy)
         action = f"injected -> compile_script={topo_abs}"
     else:
         # Remove a stale 'custom' profile so the catalog stays clean.

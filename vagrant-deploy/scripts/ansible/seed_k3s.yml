@@ -265,6 +265,10 @@
   gather_facts: false
   become: true
   tasks:
+    - name: Skip when cni.install does not request vxlan-overlay
+      ansible.builtin.meta: end_play
+      when: "'vxlan-overlay' not in cni_install"
+
     - name: Load vxlan kernel module
       community.general.modprobe:
         name: vxlan
@@ -306,6 +310,10 @@
   gather_facts: false
   become: true
   tasks:
+    - name: Skip when cni.install does not request vxlan-overlay
+      ansible.builtin.meta: end_play
+      when: "'vxlan-overlay' not in cni_install"
+
     - name: Apply seed-private-ip label to each node
       ansible.builtin.shell: |
         k3s kubectl label node {{ item }} \
@@ -425,9 +433,9 @@
     cni_archive_url: >-
       {{ cni_plugins_base }}/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz
   tasks:
-    - name: Skip when cni.type does not need extra plugins
+    - name: Skip when cni.install does not request macvlan or ipvlan
       ansible.builtin.meta: end_play
-      when: cni_type not in ['macvlan', 'ipvlan']
+      when: not ('macvlan' in cni_install or 'ipvlan' in cni_install)
 
     - name: Check whether macvlan is already installed
       ansible.builtin.stat:

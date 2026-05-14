@@ -161,8 +161,9 @@ def build_group_vars(k3s_cfg: dict, master_ip: str) -> dict:
         # Docker daemon registry-mirrors only applies to docker.io. We pass the
         # whole list; the playbook serialises it as a JSON array.
         "docker_daemon_mirrors": docker_io_mirrors,
-        # CNI plugins
-        "cni_type": cni.get("type", "macvlan"),
+        # CNI plugins — install-time list (toolbox). Deploy-time choice
+        # (which one of these to actually use) lives in deploy.yaml.cni.type.
+        "cni_install": list(cni.get("install", [])),
         "cni_plugins_version": "v1.6.2",
         # Multus
         "multus_install": bool(multus.get("install", True)),

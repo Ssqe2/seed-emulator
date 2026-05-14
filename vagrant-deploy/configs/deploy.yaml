@@ -20,10 +20,17 @@ namespace: ""                    # SEED_NAMESPACE  (空 = 用 profile 自带的�
 # 修改 seed-emulator/configs/seed_k8s_profiles.yaml。
 topology_file: "../examples/kubernetes/k8s_nano_internet.py"
 
+# --- CNI 部署决策 ---------------------------------------------------------
+# 部署时 SEED secondary network 用哪种 CNI 实现。必须是
+# k3s.yaml.cni.install 列表里的一员(集群构建时装好的工具箱)。
+# 切 CNI 不需要重装集群,改这里 + seed_all.sh sim 即可。
+cni:
+  type: vxlan-overlay            # SEED_CNI_TYPE  bridge | macvlan | ipvlan | vxlan-overlay | host-local
+
 # --- Image build & distribution 主选项 ----------------------------------
 image:
   pull_policy: Always            # SEED_IMAGE_PULL_POLICY        Always | IfNotPresent | Never
-  distribution_mode: registry    # SEED_IMAGE_DISTRIBUTION_MODE  registry | preload  
+  distribution_mode: registry    # SEED_IMAGE_DISTRIBUTION_MODE  registry | preload
 
 # --- Build 调优 -----------------------------------------------------------
 advanced:

@@ -49,7 +49,6 @@ export PATH="${SCRIPT_DIR}/bin:${PATH}"
 export SEED_K3S_SERVER_URL_OVERRIDE="https://127.0.0.1:16443"
 
 DEPLOY_CONFIG="${REPO_ROOT}/configs/deploy.yaml"
-K3S_CONFIG="${REPO_ROOT}/configs/k3s.yaml"
 ADVANCED_CONFIG="${REPO_ROOT}/configs/advanced.yaml"
 TUNING_CONFIG="${REPO_ROOT}/configs/tuning.yaml"
 PROFILE_RUNNER="${SEED_DIR}/scripts/seed_k8s_profile_runner.sh"
@@ -125,12 +124,12 @@ python3 "${SCRIPT_DIR}/inject_custom_profile.py" \
   --profile-yaml "${SEED_DIR}/configs/seed_k8s_profiles.yaml" \
   --repo-root "${REPO_ROOT}"
 
-# 3) Deployment knobs (common + k3s + advanced + tuning) → SEED_*
-# k3s.yaml is included so SEED_CNI_TYPE comes from the same place ansible reads
-# its cni_type variable — single source of truth, no drift.
+# 3) Deployment knobs (deploy + advanced + tuning yaml) → SEED_*
+# Note: configs/k3s.yaml is cluster-build-time only (ansible reads it directly),
+# not part of the deploy-time env. CNI deployment choice lives in
+# deploy.yaml.cni.type and must reference an entry under k3s.yaml.cni.install.
 deploy_exports="$(python3 "${SCRIPT_DIR}/gen_deploy_env.py" \
   --deploy   "${DEPLOY_CONFIG}" \
-  --k3s      "${K3S_CONFIG}" \
   --advanced "${ADVANCED_CONFIG}" \
   --tuning   "${TUNING_CONFIG}")"
 if [[ -n "${deploy_exports}" ]]; then
