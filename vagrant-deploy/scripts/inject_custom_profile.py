@@ -31,10 +31,8 @@ CUSTOM_KEY = "custom"
 
 
 def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
-    sched = deploy.get("scheduling") or {}
-    # cni.type is a deployment-time decision (lives in deploy.yaml).
-    # The cluster-build-time CNI install list (k3s.yaml.cni.install) is a
-    # separate concern handled by ansible.
+    # cni.type 是部署决策,scheduling_strategy 是拓扑作者决策(defined-by-topology)
+    compiler = deploy.get("compiler") or {}
     cni = deploy.get("cni") or {}
     return {
         "profile_id": CUSTOM_KEY,
@@ -45,7 +43,9 @@ def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
         "compile_script": str(topology_abspath),
         "default_namespace": (deploy.get("namespace") or "seedemu-custom"),
         "default_cni_type": (cni.get("type") or "macvlan"),
-        "default_scheduling_strategy": (sched.get("strategy") or "by_as_hard"),
+        # scheduling_strategy: yaml 空 = defined-by-topology, 不硬编码 fallback
+        # 否则 profile_runner.sh 会用这个 default 覆盖拓扑作者意图
+        "default_scheduling_strategy": (compiler.get("scheduling_strategy") or ""),
         "verify_mode": "generic_ready",
         "verify_targets": {
             "min_deployments_available": 1,
