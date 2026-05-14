@@ -6,10 +6,6 @@
 #
 # 留空的字段表示"沿用上游 SEED 脚本的默认值",不会被 export。
 
-# --- Profile selection ----------------------------------------------------
-# Available profiles defined in seed-emulator/configs/seed_k8s_profiles.yaml:
-#   mini_internet | real_topology_rr | real_topology_rr_scale |
-#   transit_as | mini_internet_viz | hybrid_kubevirt
 profile: custom
 namespace: ""                    # SEED_NAMESPACE  (空 = 用 profile 自带的默认)
 
@@ -48,10 +44,16 @@ services:
   type: NodePort                         # SEED_SERVICE_TYPE
                                          # NodePort | ClusterIP
 
-  # internet-map UI 本机访问端口。compiler.internet_map_enabled=true 时,
-  # seed_all.sh sim 跑完会自动 `kubectl port-forward` 后台暴露 UI 到这个本机
-  # 端口,浏览器开 http://localhost:<port>/ 即可。0 = 不暴露(用户自己 port-forward)
-  internet_map_local_port: 8080
+  # K8s 拓扑可视化 / 仿真状态展示 web UI 的本机端口。
+  # seed_all.sh sim 跑完会自动后台启动 scripts/seed_k8s_showcase.py
+  # (跑在 controller 上,直连 K8s API + 读 latest run 的 artifacts),
+  # 浏览器开 http://localhost:<port>/ 即可看节点 / Pod / BGP 健康 / 资源 / 事件。
+  # 0 = 不启动。停止用 `seed_all.sh showcase-down`。
+  #
+  # 注:跟 compiler.internet_map_enabled 是两套独立机制 —
+  #   - internet-map:SEED 上游 Docker 时代设计,K8s 上看不到节点(它读 docker.sock)
+  #   - showcase:SEED 上游后加的 K8s 专用 web UI(读 K8s API),才是实际可用的
+  showcase_port: 8088
 
 # --- CNI 部署决策 ---------------------------------------------------------
 # cni.type:部署时 SEED secondary network 用哪种 CNI 实现。必须是

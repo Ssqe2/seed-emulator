@@ -21,11 +21,12 @@ fi
 #   seed_all.sh sim       Run full simulation (auto-cleans previous namespace)
 #   seed_all.sh quick     Dev loop: only compile + build + deploy (skips
 #                         verify/observe/report; use after editing topology)
-#   seed_all.sh clean     Delete the SEED simulation namespace, keep cluster
-#   seed_all.sh ui-down   Stop the background internet-map port-forward
-#   seed_all.sh down      Destroy all VMs (everything goes)
-#   seed_all.sh status    Show VM + K3s status
-#   seed_all.sh reset     Uninstall K3s but keep the VMs
+#   seed_all.sh clean         Delete the SEED simulation namespace, keep cluster
+#   seed_all.sh showcase      (Re)start the background showcase web UI
+#   seed_all.sh showcase-down Stop the background showcase web UI
+#   seed_all.sh down          Destroy all VMs (everything goes)
+#   seed_all.sh status        Show VM + K3s status
+#   seed_all.sh reset         Uninstall K3s but keep the VMs
 #
 # A dependency preflight (configs/deps.yaml) runs before up/vm/k3s/sim/quick.
 # To check or install deps directly:  bash scripts/install_deps.sh {check|install}
@@ -79,28 +80,28 @@ stage_clean() {
   fi
 }
 
-stage_ui_down() {
-  local pidfile="${REPO_ROOT}/output/internet_map_portforward.pid"
+stage_showcase_down() {
+  local pidfile="${REPO_ROOT}/output/showcase.pid"
   if [[ -f "${pidfile}" ]]; then
     local pid
     pid="$(cat "${pidfile}" 2>/dev/null || true)"
     if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
       kill "${pid}" 2>/dev/null || true
-      log "Stopped internet-map port-forward (pid ${pid})"
+      log "Stopped showcase (pid ${pid})"
     fi
     rm -f "${pidfile}"
   fi
 }
 
-stage_expose_ui() {
-  # 读 deploy.yaml.services.internet_map_local_port,若 > 0 且 service 存在,
-  # 后台起 kubectl port-forward(nohup,跟 seed_all 解耦),浏览器开
-  # http://localhost:<port>/ 即可看 internet-map。
+stage_showcase() {
+  # 读 deploy.yaml.services.showcase_port,若 > 0,后台跑
+  # seed_k8s_showcase.py(controller 上跑,直连 K8s API + 读 latest
+  # run artifacts),浏览器开 http://localhost:<port>/ 看实时 UI。
   local port
   port="$(python3 -c "
 import yaml
 cfg = yaml.safe_load(open('${REPO_ROOT}/configs/deploy.yaml')) or {}
-val = (cfg.get('services') or {}).get('internet_map_local_port', '')
+val = (cfg.get('services') or {}).get('showcase_port', '')
 text = str(val).strip()
 print(text if text and text != '0' else '')
 " 2>/dev/null)"
@@ -113,41 +114,35 @@ print(text if text and text != '0' else '')
     return 0
   fi
 
-  local ns
-  ns="$(python3 "${SCRIPT_DIR}/get_active_namespace.py" \
-        --deploy "${REPO_ROOT}/configs/deploy.yaml" \
-        --profile-yaml "${SEED_DIR}/configs/seed_k8s_profiles.yaml" 2>/dev/null)"
-  if [[ -z "${ns}" ]]; then
-    log "internet-map UI: no active namespace; skip port-forward"
-    return 0
-  fi
+  local profile
+  profile="$(python3 -c "
+import yaml
+cfg = yaml.safe_load(open('${REPO_ROOT}/configs/deploy.yaml')) or {}
+print(str(cfg.get('profile') or 'custom').strip())
+" 2>/dev/null)"
 
-  if ! KUBECONFIG="${KUBECONFIG_FILE}" kubectl -n "${ns}" \
-       get svc seedemu-internet-map-service &>/dev/null; then
-    log "internet-map UI: service not found in '${ns}' (internet_map_enabled=false?); skip port-forward"
-    return 0
-  fi
+  # Kill stale showcase(防同端口冲突 + 让新 sim 的 latest run 重新被 bind)
+  stage_showcase_down
 
-  # Kill stale forward(防同端口冲突)
-  stage_ui_down
-
-  local pidfile="${REPO_ROOT}/output/internet_map_portforward.pid"
-  local logfile="${REPO_ROOT}/output/internet_map_portforward.log"
+  local pidfile="${REPO_ROOT}/output/showcase.pid"
+  local logfile="${REPO_ROOT}/output/showcase.log"
   mkdir -p "${REPO_ROOT}/output"
 
-  log "Starting internet-map port-forward: localhost:${port} -> ${ns}/internet-map-service:8080"
-  KUBECONFIG="${KUBECONFIG_FILE}" nohup kubectl -n "${ns}" port-forward \
-    --address 0.0.0.0 \
-    svc/seedemu-internet-map-service "${port}:8080" \
+  log "Starting showcase web UI: localhost:${port} (profile=${profile}, run=latest)"
+  KUBECONFIG="${KUBECONFIG_FILE}" nohup python3 "${SEED_DIR}/scripts/seed_k8s_showcase.py" \
+    --profile "${profile}" \
+    --run-id latest \
+    --host 0.0.0.0 \
+    --port "${port}" \
     >> "${logfile}" 2>&1 &
   echo $! > "${pidfile}"
 
   sleep 1
   if kill -0 "$(cat "${pidfile}")" 2>/dev/null; then
-    log "  Internet Map UI: http://localhost:${port}/"
-    log "  Stop forward:    bash scripts/seed_all.sh ui-down"
+    log "  Showcase UI: http://localhost:${port}/"
+    log "  Stop:        bash scripts/seed_all.sh showcase-down"
   else
-    log "  port-forward exited immediately; see ${logfile}"
+    log "  showcase exited immediately; see ${logfile}"
     rm -f "${pidfile}"
   fi
 }
@@ -199,9 +194,9 @@ stage_sim() {
     fi
   done
 
-  # 全部 stage 跑完后,如果 internet-map 启用了且 yaml 配了本机端口,
-  # 自动起后台 port-forward 让用户浏览器能看 UI。
-  stage_expose_ui
+  # 全部 stage 跑完后,如果 deploy.yaml 配了 services.showcase_port,
+  # 后台启动 seed_k8s_showcase web UI(直连 K8s API + 读 latest run artifacts)。
+  stage_showcase
 }
 
 # Dev loop: assume images are already built (or topology code-only changes).
@@ -228,9 +223,10 @@ case "${1:-up}" in
   sim)    stage_preflight; stage_sim   ;;
   quick)  stage_preflight; stage_quick ;;
   clean)  stage_clean ;;
-  ui-down) stage_ui_down ;;
+  showcase)      stage_showcase ;;
+  showcase-down) stage_showcase_down ;;
   down)
-    stage_ui_down
+    stage_showcase_down
     bash "${SCRIPT_DIR}/seed_vagrant.sh" down
     ;;
   status)
