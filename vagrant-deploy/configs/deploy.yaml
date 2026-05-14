@@ -29,13 +29,16 @@ compiler:
                                          # 生成 internet-map Deployment + NodePort Service
 
   # --- defined by topology file -------------------------------------------
-  # 留空 = 用拓扑代码里的默认值;设值 = override 拓扑设置。
-  scheduling_strategy: ""                # SEED_SCHEDULING_STRATEGY
-                                         # none|auto|by_as|by_as_hard|by_role|custom
-  node_labels: ""                        # SEED_NODE_LABELS_JSON
-                                         # JSON,e.g. {"150":{"kubernetes.io/hostname":"worker1"}}
-  default_resources: ""                  # SEED_DEFAULT_RESOURCES
-                                         # JSON,e.g. {"requests":{"cpu":"50m"},"limits":...}
+  # 值 = "defined_by_topology_file"  → yaml 不参与,完全由拓扑代码决定
+  #   - 拓扑作者已 hardcode 这个字段 → 用 hardcode 值
+  #   - 拓扑作者没 hardcode → 拓扑里的 _env_str fallback 决定
+  # 其他值 → override 拓扑设置
+  scheduling_strategy: defined_by_topology_file   # SEED_SCHEDULING_STRATEGY
+                                                  # none|auto|by_as|by_as_hard|by_role|custom
+  node_labels: defined_by_topology_file           # SEED_NODE_LABELS_JSON
+                                                  # JSON,e.g. {"150":{"kubernetes.io/hostname":"worker1"}}
+  default_resources: defined_by_topology_file     # SEED_DEFAULT_RESOURCES
+                                                  # JSON,e.g. {"requests":{"cpu":"50m"},"limits":...}
 
 # --- K8s Service 暴露 -----------------------------------------------------
 services:
@@ -52,8 +55,8 @@ services:
 cni:
   type: vxlan-overlay                    # SEED_CNI_TYPE
                                          # bridge | macvlan | ipvlan | vxlan-overlay | host-local
-  local_link_cni_type: ""                # SEED_LOCAL_LINK_CNI_TYPE  defined by topology
-                                         # 留空走自动 fallback(BY_AS_HARD+macvlan→bridge 等)
+  local_link_cni_type: defined_by_topology_file   # SEED_LOCAL_LINK_CNI_TYPE
+                                                  # 留默认走自动 fallback(BY_AS_HARD+macvlan→bridge 等)
 
 # --- Image build & distribution 主选项 ----------------------------------
 image:

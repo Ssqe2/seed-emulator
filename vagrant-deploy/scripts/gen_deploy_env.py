@@ -151,13 +151,21 @@ def dig(cfg: dict, path: Iterable[str]) -> Any:
     return cur
 
 
+# Sentinel value in deploy.yaml meaning "this field is defined by the
+# topology Python file; do NOT export it as an env var, let the topology
+# code use its hardcoded value or _env_str fallback".
+DEFINED_BY_TOPOLOGY = "defined_by_topology_file"
+
+
 def stringify(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, bool):
         return "true" if value else "false"
     text = str(value).strip()
-    return text or None
+    if not text or text == DEFINED_BY_TOPOLOGY:
+        return None
+    return text
 
 
 def lines_for(cfg_path: Path | None, mapping: list[tuple[tuple[str, ...], str]]) -> list[str]:
