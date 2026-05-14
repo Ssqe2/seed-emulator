@@ -38,12 +38,21 @@ die() { echo "[install_deps] ERROR: $*" >&2; exit 1; }
 [[ -f "${DEPS_FILE}" ]] || die "deps.yaml not found at ${DEPS_FILE}"
 
 # Choose the Python interpreter for installing SEED's pinned requirements.
-# Hard constraints on macOS:
-#   - SEED upstream uses `match` (Python 3.10+) — rules out Apple's /usr/bin/python3 (3.9)
+# Version constraint (every platform): 3.10-3.13.
+#   - SEED upstream uses `match` (Python 3.10+) — rules out 3.9 and older.
 #   - SEED's pinned reqs (rpds-py, eth-*, web3) only ship wheels for 3.10-3.13
-#     — rules out brew's default `python3` (currently 3.14)
-# Sweet spot is brew python@3.12. Auto-install if missing.
-if [ "$(uname)" = "Darwin" ]; then
+#     — rules out 3.14+ (source-build chain may also be missing).
+#
+# Selection order:
+#   1. $PYTHON env var (if set) — user-supplied override; lets pyenv/conda
+#      users point at an exact binary. Still version-gated below.
+#   2. macOS: brew python@3.12 (the only sweet spot — Apple system python is
+#      3.9, brew default is 3.14). Auto-install via brew if missing.
+#   3. Linux/WSL: whatever `command -v python3` resolves to. Distro python
+#      is usually in range (Ubuntu 22.04=3.10, 24.04=3.12, Debian 12=3.11).
+if [ -n "${PYTHON:-}" ]; then
+  : # user override
+elif [ "$(uname)" = "Darwin" ]; then
   PYTHON="/opt/homebrew/opt/python@3.12/bin/python3.12"
   if [ ! -x "${PYTHON}" ]; then
     if command -v brew &>/dev/null; then
@@ -51,13 +60,23 @@ if [ "$(uname)" = "Darwin" ]; then
       HOMEBREW_BOTTLE_DOMAIN="${HOMEBREW_BOTTLE_DOMAIN:-https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles}" \
         brew install python@3.12 || die "brew install python@3.12 failed"
     else
-      die "Need brew python@3.12 for SEED (rules out /usr/bin/python3 3.9 + brew default 3.14). Install brew first."
+      die "Need brew python@3.12 for SEED (rules out /usr/bin/python3 3.9 + brew default 3.14). Install brew first, or set PYTHON=/path/to/python3.{10,11,12,13}."
     fi
   fi
 else
   PYTHON="$(command -v python3 || true)"
 fi
-[[ -x "${PYTHON}" ]] || die "python3 is required.  sudo apt install python3 python3-yaml"
+[[ -x "${PYTHON}" ]] || die "python3 is required.  sudo apt install python3 python3-yaml  (or set PYTHON=/path/to/python3)"
+
+# Version range gate: catch out-of-range early so SEED upstream's `match`
+# syntax or SEED reqs' missing wheels don't surface later as a confusing
+# SyntaxError / "no matching distribution" from pip.
+if ! "${PYTHON}" -c 'import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,13) else 1)' 2>/dev/null; then
+  pyver="$("${PYTHON}" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || echo unknown)"
+  die "Python ${pyver} at ${PYTHON} is out of supported range (3.10-3.13).
+       SEED upstream needs >=3.10 (match syntax); SEED reqs lack 3.14+ wheels.
+       Fix: install a 3.10-3.13 via apt/pyenv, or set PYTHON=/path/to/python3.{10,11,12,13} and re-run."
+fi
 
 # Bootstrap: install_deps.sh itself depends on PyYAML to read deps.yaml.
 # When PYTHON was just freshly brew-installed (eg python@3.12 above), it

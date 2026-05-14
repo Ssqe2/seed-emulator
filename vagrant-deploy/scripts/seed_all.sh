@@ -15,21 +15,23 @@ fi
 # SEED Emulator — One-shot driver
 #
 # Usage:
-#   seed_all.sh up        Full pipeline: VM + K3s + simulation (first time)
+#   seed_all.sh all       Full pipeline: doctor install + VM + K3s + simulation
+#   seed_all.sh up        Bring VMs up + install K3s + run simulation (no doctor)
 #   seed_all.sh vm        Only start VMs
 #   seed_all.sh k3s       Only install K3s on already-running VMs
 #   seed_all.sh sim       Run full simulation (auto-cleans previous namespace)
 #   seed_all.sh quick     Dev loop: only compile + build + deploy (skips
 #                         verify/observe/report; use after editing topology)
+#   seed_all.sh doctor [check|install]
+#                             check    : report missing deps from deps.yaml
+#                             install  : auto-install pip pkgs + start daemons
+#                             default = check
 #   seed_all.sh clean         Delete the SEED simulation namespace, keep cluster
 #   seed_all.sh showcase      (Re)start the background showcase web UI
 #   seed_all.sh showcase-down Stop the background showcase web UI
 #   seed_all.sh down          Destroy all VMs (everything goes)
 #   seed_all.sh status        Show VM + K3s status
 #   seed_all.sh reset         Uninstall K3s but keep the VMs
-#
-# A dependency preflight (configs/deps.yaml) runs before up/vm/k3s/sim/quick.
-# To check or install deps directly:  bash scripts/install_deps.sh {check|install}
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,17 +42,22 @@ KUBECONFIG_FILE="${REPO_ROOT}/output/kubeconfig.yaml"
 log()  { echo "[seed_all] $*"; }
 die()  { echo "[seed_all] ERROR: $*" >&2; exit 1; }
 
-stage_preflight() {
-  log "Preflight — dependency check + auto-ensure (configs/deps.yaml)"
-  # Use 'install' mode rather than 'check': it pip-installs missing python
-  # packages, then for the active provider (cluster.yaml) it auto-starts any
-  # daemon that's not running (eg vagrant-vmware-utility on macOS via sudo
-  # launchctl). This avoids the user needing manual `sudo launchctl ...` dance
-  # mid-run. CLI tools / hypervisor apps still aren't auto-installed (they
-  # need the user's chosen install method) — those still print install_hint
-  # and abort.
-  bash "${SCRIPT_DIR}/install_deps.sh" install \
-    || die "Preflight failed; install missing items above and re-run."
+# Dependency check / install from configs/deps.yaml.
+#   check    only report missing items, exit non-zero
+#   install  pip-install missing python pkgs + auto-start any provider daemon
+#            (eg vagrant-vmware-utility on macOS via sudo launchctl). CLI
+#            tools / hypervisor apps still aren't auto-installed (they need
+#            the user's chosen install method) — those still print install_hint
+#            and abort.
+stage_doctor() {
+  local mode="${1:-check}"
+  case "${mode}" in
+    check|install) ;;
+    *) die "doctor mode must be 'check' or 'install' (got: ${mode})" ;;
+  esac
+  log "Doctor (${mode}) — dependency check (configs/deps.yaml)"
+  bash "${SCRIPT_DIR}/install_deps.sh" "${mode}" \
+    || die "Doctor ${mode} failed; install missing items above and re-run."
 }
 
 stage_vm()    { bash "${SCRIPT_DIR}/seed_vagrant.sh"   up;       }
@@ -208,8 +215,8 @@ stage_quick() {
 }
 
 case "${1:-up}" in
-  up)
-    stage_preflight
+  all)
+    stage_doctor install
     log "Stage 1/3 — bring VMs up"
     stage_vm
     log "Stage 2/3 — install K3s cluster"
@@ -218,10 +225,20 @@ case "${1:-up}" in
     stage_sim
     log "All stages complete."
     ;;
-  vm)     stage_preflight; stage_vm    ;;
-  k3s)    stage_preflight; stage_k3s   ;;
-  sim)    stage_preflight; stage_sim   ;;
-  quick)  stage_preflight; stage_quick ;;
+  up)
+    log "Stage 1/3 — bring VMs up"
+    stage_vm
+    log "Stage 2/3 — install K3s cluster"
+    stage_k3s
+    log "Stage 3/3 — run SEED simulation"
+    stage_sim
+    log "All stages complete."
+    ;;
+  vm)     stage_vm    ;;
+  k3s)    stage_k3s   ;;
+  sim)    stage_sim   ;;
+  quick)  stage_quick ;;
+  doctor) stage_doctor "${2:-check}" ;;
   clean)  stage_clean ;;
   showcase)      stage_showcase ;;
   showcase-down) stage_showcase_down ;;
@@ -237,7 +254,7 @@ case "${1:-up}" in
     bash "${SCRIPT_DIR}/seed_k3s_setup.sh" reset
     ;;
   -h|--help|help|"")
-    sed -n '4,21p' "$0"
+    sed -n '14,35p' "$0"
     ;;
   *)
     die "Unknown action: $1"

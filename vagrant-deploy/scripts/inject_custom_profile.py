@@ -30,10 +30,22 @@ import yaml
 CUSTOM_KEY = "custom"
 
 
+DEFINED_BY_TOPOLOGY = "defined_by_topology_file"
+
+
 def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
     # cni.type 是部署决策,scheduling_strategy 是拓扑作者决策(defined-by-topology)
     compiler = deploy.get("compiler") or {}
     cni = deploy.get("cni") or {}
+
+    # sentinel 转空 — profile_runner.sh:686 会把 catalog default 字符串原样
+    # export 成 SEED_SCHEDULING_STRATEGY,如果留 sentinel 字符串,拓扑代码的
+    # _env_str("SEED_SCHEDULING_STRATEGY", BY_AS_HARD) 会拿到 sentinel 当 strategy,
+    # 编译器 fallback NONE → 没 nodeSelector,BY_AS_HARD 完全失效。
+    _sched = (compiler.get("scheduling_strategy") or "").strip()
+    if _sched == DEFINED_BY_TOPOLOGY:
+        _sched = ""
+
     return {
         "profile_id": CUSTOM_KEY,
         "support_tier": "tier3",
@@ -43,9 +55,7 @@ def build_profile_block(topology_abspath: Path, deploy: dict) -> dict:
         "compile_script": str(topology_abspath),
         "default_namespace": (deploy.get("namespace") or "seedemu-custom"),
         "default_cni_type": (cni.get("type") or "macvlan"),
-        # scheduling_strategy: yaml 空 = defined-by-topology, 不硬编码 fallback
-        # 否则 profile_runner.sh 会用这个 default 覆盖拓扑作者意图
-        "default_scheduling_strategy": (compiler.get("scheduling_strategy") or ""),
+        "default_scheduling_strategy": _sched,
         "verify_mode": "generic_ready",
         "verify_targets": {
             "min_deployments_available": 1,

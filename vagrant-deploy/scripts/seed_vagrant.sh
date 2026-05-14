@@ -154,7 +154,13 @@ with open(vagrantfile_path, "w") as vf:
     # user's home dir inside the VM, which breaks `vagrant up`.
     vf.write('  config.vm.synced_folder ".", "/vagrant", disabled: true\n\n')
 
-    # Allocate host SSH ports deterministically: master=2222, workers=2200,2201,…
+    # Allocate host SSH ports deterministically: master=2222, workers=2300,2301,…
+    # Workers start at 2300 (not 2200) so they don't collide with master's 2222
+    # when worker count is large: 2200+22 would land on 2222 itself, and
+    # auto_correct only fixes the forwarded_port — not the hardcoded n.ssh.port,
+    # which would then point ssh-config at the wrong VM. 2300 base gives ~63k
+    # worker headroom before hitting any common service port.
+    #
     # Each VM gets explicit forwarded_port + n.ssh.host/port. Why all of them
     # and not just master: vmware_desktop's `vagrant ssh-config` switches *every*
     # VM's HostName to the VMnet NAT IP (192.168.150.x) once any explicit
@@ -171,7 +177,7 @@ with open(vagrantfile_path, "w") as vf:
         if role == "master":
             ssh_host_port = 2222
         else:
-            ssh_host_port = 2200 + worker_idx
+            ssh_host_port = 2300 + worker_idx
             worker_idx += 1
 
         vf.write(f'  config.vm.define "{name}" do |n|\n')

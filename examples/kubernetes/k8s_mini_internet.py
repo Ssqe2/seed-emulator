@@ -194,7 +194,38 @@ def run(dumpfile=None, hosts_per_as=2):
 
     # defined-by-topology (yaml empty -> topology-author default)
     scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS_HARD).lower()
-    node_labels           = _env_json("SEED_NODE_LABELS_JSON", {})
+    # 22 ASN + 6 IX → 3-node mapping for vagrant-deploy cluster
+    # (master + worker1 + worker2). 外部 SEED_NODE_LABELS_JSON 整体覆盖。
+    # Pod 分布大致均匀:master ~20 / worker1 ~20 / worker2 ~18。
+    _default_node_labels = {
+        # master(4 GB)
+        "2":   {"kubernetes.io/hostname": "master"},
+        "12":  {"kubernetes.io/hostname": "master"},
+        "100": {"kubernetes.io/hostname": "master"},
+        "101": {"kubernetes.io/hostname": "master"},
+        "150": {"kubernetes.io/hostname": "master"},
+        "151": {"kubernetes.io/hostname": "master"},
+        "152": {"kubernetes.io/hostname": "master"},
+        "153": {"kubernetes.io/hostname": "master"},
+        # worker1(2 GB)
+        "4":   {"kubernetes.io/hostname": "worker1"},
+        "11":  {"kubernetes.io/hostname": "worker1"},
+        "102": {"kubernetes.io/hostname": "worker1"},
+        "105": {"kubernetes.io/hostname": "worker1"},
+        "154": {"kubernetes.io/hostname": "worker1"},
+        "164": {"kubernetes.io/hostname": "worker1"},
+        "170": {"kubernetes.io/hostname": "worker1"},
+        "171": {"kubernetes.io/hostname": "worker1"},
+        # worker2(2 GB)
+        "3":   {"kubernetes.io/hostname": "worker2"},
+        "103": {"kubernetes.io/hostname": "worker2"},
+        "104": {"kubernetes.io/hostname": "worker2"},
+        "160": {"kubernetes.io/hostname": "worker2"},
+        "161": {"kubernetes.io/hostname": "worker2"},
+        "162": {"kubernetes.io/hostname": "worker2"},
+        "163": {"kubernetes.io/hostname": "worker2"},
+    }
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", _default_node_labels)
     default_resources     = _env_json("SEED_DEFAULT_RESOURCES", None)
     local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
 

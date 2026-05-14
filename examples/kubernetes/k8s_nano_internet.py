@@ -147,11 +147,23 @@ def run():
     image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
 
     # defined-by-topology (yaml empty -> topology-author default)
-    # AUTO = soft affinity (same-ASN/same-role 软偏好同 node) + topology spread.
-    # 比 NONE 更适合 SEED 多节点场景:同 AS 倾向落同节点 → AS 内部网络免去
-    # 跨节点 L2;同时不强制 node_labels mapping,缺 mapping 不会编译失败。
-    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.AUTO)
-    node_labels           = _env_json("SEED_NODE_LABELS_JSON", None)
+    # BY_AS_HARD + 显式 node_labels:强制 AS150/AS151/AS152 落不同节点,
+    # 这样 host pod 跨节点 ping 真实经过 hypervisor 虚拟网络 + vxlan-overlay,
+    # 是 provider 性能对比 benchmark 的关键。
+    # 非 3 节点 cluster 时,外部 SEED_NODE_LABELS_JSON 整体覆盖。
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS_HARD).lower()
+    _default_node_labels = {
+        # master:transit AS3(4 router)+ 两个 IX rs
+        "3":   {"kubernetes.io/hostname": "master"},
+        "100": {"kubernetes.io/hostname": "master"},
+        "101": {"kubernetes.io/hostname": "master"},
+        # worker1:AS 150(host_0 web/dns)
+        "150": {"kubernetes.io/hostname": "worker1"},
+        # worker2:AS 151 + AS 152
+        "151": {"kubernetes.io/hostname": "worker2"},
+        "152": {"kubernetes.io/hostname": "worker2"},
+    }
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", _default_node_labels)
     default_resources     = _env_json("SEED_DEFAULT_RESOURCES", None)
     local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
 
