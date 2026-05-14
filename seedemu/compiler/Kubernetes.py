@@ -247,6 +247,10 @@ class KubernetesCompiler(Docker):
             f.write('export SEED_DOCKER_IO_MIRROR_ENDPOINT="${SEED_DOCKER_IO_MIRROR_ENDPOINT:-https://docker.m.daocloud.io}"\n')
             f.write('MIRROR_HOST="${SEED_DOCKER_IO_MIRROR_ENDPOINT#http://}"\n')
             f.write('MIRROR_HOST="${MIRROR_HOST#https://}"\n')
+            # Export so mirror_image_name (called from xargs -P subshells)
+            # can see MIRROR_HOST. Without this `set -u` triggers "unbound
+            # variable" in parallel mode.
+            f.write('export MIRROR_HOST\n')
             # Export so the inline Python snippet (daemon.json edit) can see it.
             f.write(f'export REGISTRY_PREFIX="{self.__registry_prefix}"\n')
             f.write('export REGISTRY_LOCAL_ENDPOINT="${SEED_REGISTRY_LOCAL_ENDPOINT:-}"\n')
