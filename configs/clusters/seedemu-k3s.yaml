@@ -8,30 +8,30 @@ k3s:
   node_cidr_mask_size_ipv4: 24
   max_pods: 110
 ssh:
-  user: ubuntu
+  user: vagrant
   key_path_env: SEED_K3S_SSH_KEY
-  default_key_path: ~/.ssh/id_ed25519
+  default_key_path: /Users/walker_john/.vagrant.d/insecure_private_keys/vagrant.key.rsa
 registry:
-  host: 192.168.122.110
+  host: 192.168.77.10
   port: 5000
 cni:
-  default_master_interface: ens2
+  default_master_interface: ens256
 nodes:
-  - name: seed-k3s-master
-    role: master
-    management_ip: 192.168.122.110
-    runtime: k3s
-    labels:
-      kubernetes.io/hostname: seed-k3s-master
-  - name: seed-k3s-worker1
-    role: worker
-    management_ip: 192.168.122.111
-    runtime: k3s
-    labels:
-      kubernetes.io/hostname: seed-k3s-worker1
-  - name: seed-k3s-worker2
-    role: worker
-    management_ip: 192.168.122.112
-    runtime: k3s
-    labels:
-      kubernetes.io/hostname: seed-k3s-worker2
+- name: master
+  role: master
+  management_ip: 192.168.77.10
+  runtime: k3s
+  labels:
+    kubernetes.io/hostname: master
+- name: worker1
+  role: worker
+  management_ip: 192.168.77.11
+  runtime: k3s
+  labels:
+    kubernetes.io/hostname: worker1
+- name: worker2
+  role: worker
+  management_ip: 192.168.77.12
+  runtime: k3s
+  labels:
+    kubernetes.io/hostname: worker2
