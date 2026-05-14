@@ -35,8 +35,19 @@ DEPLOY_MAPPING: list[tuple[tuple[str, ...], str]] = [
     # Profile selection
     (("profile",),                                "SEED_EXPERIMENT_PROFILE"),
     (("namespace",),                              "SEED_NAMESPACE"),
+    # Compiler 开关
+    (("compiler", "use_multus"),                  "SEED_USE_MULTUS"),
+    (("compiler", "internet_map_enabled"),        "SEED_INTERNET_MAP_ENABLED"),
+    # Compiler 旋钮(defined by topology file:留空 → 走拓扑作者默认)
+    (("compiler", "scheduling_strategy"),         "SEED_SCHEDULING_STRATEGY"),
+    (("compiler", "node_labels"),                 "SEED_NODE_LABELS_JSON"),
+    (("compiler", "default_resources"),           "SEED_DEFAULT_RESOURCES"),
+    # K8s Service 暴露
+    (("services", "generate"),                    "SEED_GENERATE_SERVICES"),
+    (("services", "type"),                        "SEED_SERVICE_TYPE"),
     # CNI 部署决策(集群构建时装哪些 CNI 见 k3s.yaml.cni.install)
     (("cni", "type"),                             "SEED_CNI_TYPE"),
+    (("cni", "local_link_cni_type"),              "SEED_LOCAL_LINK_CNI_TYPE"),
     # Image
     (("image", "pull_policy"),                    "SEED_IMAGE_PULL_POLICY"),
     (("image", "distribution_mode"),              "SEED_IMAGE_DISTRIBUTION_MODE"),

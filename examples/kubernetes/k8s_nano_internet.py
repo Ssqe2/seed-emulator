@@ -4,13 +4,39 @@
 # Copied from examples/basic/A20_nano_internet/nano_internet.py
 # Adapted for KubernetesCompiler
 
-import os, sys
+import json
+import os
+import sys
 
-from seedemu.compiler import KubernetesCompiler
+from seedemu.compiler import KubernetesCompiler, SchedulingStrategy
 from seedemu.core import Binding, Emulator, Filter
 from seedemu.layers import Base, Ebgp, Ibgp, Ospf, Routing
 from seedemu.layers.Ebgp import PeerRelationship
 from seedemu.services import DomainNameService, WebService
+
+
+def _env_str(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key, "").strip().lower()
+    if raw in ("true", "1", "yes"):
+        return True
+    if raw in ("false", "0", "no"):
+        return False
+    return default
+
+
+def _env_json(key: str, default):
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
 
 def run():
     # Initialize the emulator and layers
@@ -22,7 +48,7 @@ def run():
     dns     = DomainNameService()
 
     ###############################################################################
-    # Create Internet exchanges 
+    # Create Internet exchanges
 
     ix100 = base.createInternetExchange(100)
     ix101 = base.createInternetExchange(101)
@@ -106,20 +132,44 @@ def run():
     ###############################################################################
     # Kubernetes Compilation
 
-    # Configure the compiler
-    # registry_prefix: Where to push images (e.g., "docker.io/myuser" or "localhost:5000")
-    # namespace: The K8s namespace to deploy into
-    registry_prefix = os.environ.get("SEED_REGISTRY", "localhost:5000").strip()
-    namespace = os.environ.get("SEED_NAMESPACE", "seedemu").strip()
-    cni_type = os.environ.get("SEED_CNI_TYPE", "bridge").strip().lower()
-    cni_master_interface = os.environ.get("SEED_CNI_MASTER_INTERFACE", "eth0").strip()
-    image_pull_policy = os.environ.get("SEED_IMAGE_PULL_POLICY", "Always").strip()
+    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
+    # Empty/missing env -> topology-author default below.
+
+    # Cluster infrastructure (must be injected from cluster inventory)
+    registry_prefix       = _env_str("SEED_REGISTRY", "localhost:5000")
+    namespace             = _env_str("SEED_NAMESPACE", "seedemu")
+    cni_type              = _env_str("SEED_CNI_TYPE", "bridge").lower()
+    cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
+
+    # Deployment switches (yaml-defined)
+    use_multus            = _env_bool("SEED_USE_MULTUS", True)
+    internet_map_enabled  = _env_bool("SEED_INTERNET_MAP_ENABLED", False)
+    image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
+
+    # defined-by-topology (yaml empty -> topology-author default)
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.NONE)
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", None)
+    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", None)
+    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
+
+    # K8s Service exposure
+    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
+    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
+    service_type          = _env_str("SEED_SERVICE_TYPE", "NodePort")
+
     k8s = KubernetesCompiler(
         registry_prefix=registry_prefix,
         namespace=namespace,
-        use_multus=True,
+        use_multus=use_multus,
+        internetMapEnabled=internet_map_enabled,
+        scheduling_strategy=scheduling_strategy,
+        node_labels=node_labels,
+        default_resources=default_resources,
         cni_type=cni_type,
+        local_link_cni_type=local_link_cni_type,
         cni_master_interface=cni_master_interface,
+        generate_services=generate_services,
+        service_type=service_type,
         image_pull_policy=image_pull_policy,
     )
 
@@ -128,6 +178,14 @@ def run():
         output_dir = os.path.join(os.path.dirname(__file__), 'output_nano_internet')
     elif not os.path.isabs(output_dir):
         output_dir = os.path.join(os.path.dirname(__file__), output_dir)
+    # Generate internet-map Deployment + NodePort Service if requested (K8s
+    # compiler requires explicit attachInternetMap() call, unlike Docker which
+    # does it automatically when internetMapEnabled=True).
+    # Must be called BEFORE emu.compile() so the manifest/build-command appends
+    # get serialized into k8s.yaml and build_images.sh during _doCompile().
+    if internet_map_enabled:
+        k8s.attachInternetMap()
+
     emu.compile(k8s, output_dir, override=True)
 
     print(f"Compilation complete. Output generated in {output_dir}")

@@ -15,6 +15,29 @@ VALID_RUNTIME_PROFILES = {"auto", "full", "degraded", "strict"}
 VALID_CNI_TYPES = {"bridge", "host-local", "macvlan", "ipvlan"}
 
 
+def _env_str(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key, "").strip().lower()
+    if raw in ("true", "1", "yes"):
+        return True
+    if raw in ("false", "0", "no"):
+        return False
+    return default
+
+
+def _env_json(key: str, default):
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
+
 def _normalize_arch(machine: str) -> str:
     machine_lower = machine.lower()
     if machine_lower in {"x86_64", "amd64"}:
@@ -87,18 +110,9 @@ def apply_router_profile(as150_router, resolved_profile: str) -> str:
 
 def run():
     cluster_name = os.environ.get("SEED_CLUSTER_NAME", "seedemu-kvtest")
-    namespace = os.environ.get("SEED_NAMESPACE", "seedemu-kvtest")
-    registry_prefix = os.environ.get("SEED_REGISTRY", "localhost:5001")
     vm_node = os.environ.get("SEED_VM_NODE", f"{cluster_name}-control-plane")
     worker_a = os.environ.get("SEED_WORKER_A", f"{cluster_name}-worker")
     worker_b = os.environ.get("SEED_WORKER_B", f"{cluster_name}-worker2")
-    cni_type = os.environ.get("SEED_CNI_TYPE", "bridge").strip().lower()
-    cni_master_interface = os.environ.get("SEED_CNI_MASTER_INTERFACE", "eth0").strip()
-    image_pull_policy = os.environ.get("SEED_IMAGE_PULL_POLICY", "Always").strip()
-    if cni_type not in VALID_CNI_TYPES:
-        raise ValueError(
-            f"Invalid SEED_CNI_TYPE '{cni_type}'. Supported values: {sorted(VALID_CNI_TYPES)}"
-        )
 
     requested_runtime_profile = os.environ.get("SEED_RUNTIME_PROFILE", "auto")
     host_capabilities = detect_host_capabilities()
@@ -145,28 +159,63 @@ def run():
     emu.addLayer(web)
     emu.render()
 
-    node_labels = {
+    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
+    # Empty/missing env -> topology-author default below.
+
+    # Cluster infrastructure (must be injected from cluster inventory)
+    registry_prefix       = _env_str("SEED_REGISTRY", "localhost:5000")
+    namespace             = _env_str("SEED_NAMESPACE", "seedemu-kvtest")
+    cni_type              = _env_str("SEED_CNI_TYPE", "bridge").lower()
+    if cni_type not in VALID_CNI_TYPES:
+        raise ValueError(
+            f"Invalid SEED_CNI_TYPE '{cni_type}'. Supported values: {sorted(VALID_CNI_TYPES)}"
+        )
+    cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
+
+    # Deployment switches (yaml-defined)
+    use_multus            = _env_bool("SEED_USE_MULTUS", True)
+    internet_map_enabled  = _env_bool("SEED_INTERNET_MAP_ENABLED", False)
+    image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
+
+    # Topology-author defaults: this demo uses CUSTOM scheduling with fixed
+    # node_labels that pin the KubeVirt VM router on the control-plane and
+    # other pods on workers, plus a default resource budget.
+    default_node_labels = {
         "150_router0": {"kubernetes.io/hostname": vm_node},
         "150_web": {"kubernetes.io/hostname": worker_a},
         "151_router0": {"kubernetes.io/hostname": worker_b},
         "151_web": {"kubernetes.io/hostname": worker_b},
         "100_ix100": {"kubernetes.io/hostname": worker_a},
     }
+    default_resources_topology = {
+        "requests": {"cpu": "100m", "memory": "128Mi"},
+        "limits": {"cpu": "500m", "memory": "1Gi"},
+    }
+
+    # defined-by-topology (yaml empty -> topology-author default)
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.CUSTOM).lower()
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", default_node_labels)
+    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", default_resources_topology)
+    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
+
+    # K8s Service exposure
+    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
+    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
+    service_type          = _env_str("SEED_SERVICE_TYPE", "NodePort")
 
     k8s = KubernetesCompiler(
         registry_prefix=registry_prefix,
         namespace=namespace,
-        use_multus=True,
-        internetMapEnabled=False,
-        scheduling_strategy=SchedulingStrategy.CUSTOM,
+        use_multus=use_multus,
+        internetMapEnabled=internet_map_enabled,
+        scheduling_strategy=scheduling_strategy,
         node_labels=node_labels,
-        default_resources={
-            "requests": {"cpu": "100m", "memory": "128Mi"},
-            "limits": {"cpu": "500m", "memory": "1Gi"},
-        },
+        default_resources=default_resources,
         cni_type=cni_type,
+        local_link_cni_type=local_link_cni_type,
         cni_master_interface=cni_master_interface,
-        generate_services=True,
+        generate_services=generate_services,
+        service_type=service_type,
         image_pull_policy=image_pull_policy,
     )
 
@@ -175,6 +224,14 @@ def run():
         output_dir = os.path.join(os.path.dirname(__file__), "output_kubevirt_hybrid")
     elif not os.path.isabs(output_dir):
         output_dir = os.path.join(os.path.dirname(__file__), output_dir)
+    # Generate internet-map Deployment + NodePort Service if requested (K8s
+    # compiler requires explicit attachInternetMap() call, unlike Docker which
+    # does it automatically when internetMapEnabled=True).
+    # Must be called BEFORE emu.compile() so the manifest/build-command appends
+    # get serialized into k8s.yaml and build_images.sh during _doCompile().
+    if internet_map_enabled:
+        k8s.attachInternetMap()
+
     emu.compile(k8s, output_dir, override=True)
 
     profile_summary = {

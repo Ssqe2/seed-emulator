@@ -1,9 +1,35 @@
-import time
+import json
 import os
+import time
+
 from seedemu.compiler import KubernetesCompiler, SchedulingStrategy
 from seedemu.core import Emulator, Binding, Filter
 from seedemu.layers import Base, Routing, Ebgp
 from seedemu.services import WebService
+
+
+def _env_str(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key, "").strip().lower()
+    if raw in ("true", "1", "yes"):
+        return True
+    if raw in ("false", "0", "no"):
+        return False
+    return default
+
+
+def _env_json(key: str, default):
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
 
 # Create the emulator
 emu = Emulator()
@@ -67,7 +93,7 @@ control_node = os.environ.get("SEED_CONTROL_NODE", f"{cluster_name}-control-plan
 worker_a = os.environ.get("SEED_WORKER_A", f"{cluster_name}-worker")
 worker_b = os.environ.get("SEED_WORKER_B", f"{cluster_name}-worker2")
 
-node_labels = {
+default_node_labels = {
     "150": {"kubernetes.io/hostname": worker_a},
     "151": {"kubernetes.io/hostname": worker_b},
     "2": {"kubernetes.io/hostname": control_node},
@@ -75,49 +101,79 @@ node_labels = {
 
 # Compilation
 if __name__ == "__main__":
-    registry_prefix = os.environ.get("SEED_REGISTRY", "").strip()
-    namespace = os.environ.get("SEED_NAMESPACE", "seedemu").strip()
-    cni_type = os.environ.get("SEED_CNI_TYPE", "bridge").strip().lower()
+    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
+    # Empty/missing env -> topology-author default below.
+
+    # Cluster infrastructure (must be injected from cluster inventory)
+    registry_prefix       = _env_str("SEED_REGISTRY", "")
+    namespace             = _env_str("SEED_NAMESPACE", "seedemu")
+    cni_type              = _env_str("SEED_CNI_TYPE", "bridge").lower()
+    cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
+
+    # Deployment switches (yaml-defined)
+    use_multus            = _env_bool("SEED_USE_MULTUS", True)
+    internet_map_enabled  = _env_bool("SEED_INTERNET_MAP_ENABLED", False)
+    # Topology-author chose IfNotPresent (kind load mode = local images,
+    # no registry pull). Keep as default; yaml can override.
+    image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "IfNotPresent")
+
+    # Topology-author defaults: BY_AS scheduling with explicit per-AS node
+    # placement, plus a default resource budget for multi-node demo.
+    default_resources_topology = {
+        "requests": {"cpu": "100m", "memory": "128Mi"},
+        "limits": {"cpu": "500m", "memory": "512Mi"},
+    }
+
+    # defined-by-topology (yaml empty -> topology-author default)
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS).lower()
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", default_node_labels)
+    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", default_resources_topology)
+    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
+
+    # K8s Service exposure
+    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
+    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
+    service_type          = _env_str("SEED_SERVICE_TYPE", "NodePort")
+
     output_dir = os.environ.get("SEED_OUTPUT_DIR")
     if not output_dir:
         output_dir = os.path.join(os.path.dirname(__file__), "output_multinode_bridge")
     elif not os.path.isabs(output_dir):
         output_dir = os.path.join(os.path.dirname(__file__), output_dir)
-    
+
     # Create Kubernetes compiler with multi-node features
     k8s = KubernetesCompiler(
         registry_prefix=registry_prefix,  # Empty for local tags (kind load mode)
         namespace=namespace,
-        use_multus=True,
-        internetMapEnabled=False,
-        
-        # Multi-node scheduling: pods with same AS go to same node
-        scheduling_strategy=SchedulingStrategy.BY_AS,
+        use_multus=use_multus,
+        internetMapEnabled=internet_map_enabled,
+        scheduling_strategy=scheduling_strategy,
         node_labels=node_labels,
-        
-        # Resource management
-        default_resources={
-            "requests": {"cpu": "100m", "memory": "128Mi"},
-            "limits": {"cpu": "500m", "memory": "512Mi"}
-        },
-        
-        # Connectivity
+        default_resources=default_resources,
         cni_type=cni_type,
-        
-        # Service Discovery
-        generate_services=True,
-        
-        # Image Pull Policy for local images
-        image_pull_policy="IfNotPresent"
+        local_link_cni_type=local_link_cni_type,
+        cni_master_interface=cni_master_interface,
+        generate_services=generate_services,
+        service_type=service_type,
+        image_pull_policy=image_pull_policy,
     )
-    
+
     # Add bindings for WebService virtual nodes
     emu.addBinding(Binding('web150', filter=Filter(nodeName='web150', asn=150)))
     emu.addBinding(Binding('web151', filter=Filter(nodeName='web151', asn=151)))
-    
+
     emu.render()
+
+    # Generate internet-map Deployment + NodePort Service if requested (K8s
+    # compiler requires explicit attachInternetMap() call, unlike Docker which
+    # does it automatically when internetMapEnabled=True).
+    # Must be called BEFORE emu.compile() so the manifest/build-command appends
+    # get serialized into k8s.yaml and build_images.sh during _doCompile().
+    if internet_map_enabled:
+        k8s.attachInternetMap()
+
     emu.compile(k8s, output_dir, override=True)
-    
+
     print("\n" + "="*80)
     print("Multi-Node Kubernetes Deployment Generated (Local Load Mode)!")
     print("="*80)

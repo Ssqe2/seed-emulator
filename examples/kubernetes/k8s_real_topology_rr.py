@@ -24,10 +24,9 @@ Env (data):
 Env (K8s compiler, consistent with other examples):
   - SEED_REGISTRY, SEED_NAMESPACE, SEED_CNI_TYPE, SEED_CNI_MASTER_INTERFACE
   - SEED_SCHEDULING_STRATEGY, SEED_NODE_LABELS_JSON, SEED_IMAGE_PULL_POLICY
-  - SEED_OUTPUT_DIR
-
-Optional:
-  - SEED_ENABLE_INTERNET_MAP=true  (default: false)
+  - SEED_OUTPUT_DIR, SEED_USE_MULTUS, SEED_INTERNET_MAP_ENABLED,
+  - SEED_DEFAULT_RESOURCES, SEED_LOCAL_LINK_CNI_TYPE,
+  - SEED_GENERATE_SERVICES, SEED_SERVICE_TYPE
 """
 
 from __future__ import annotations
@@ -56,35 +55,27 @@ from seedemu.core import Emulator
 from seedemu.layers import Base, Ebgp, Ibgp, Ospf, PeerRelationship, Routing
 
 
-def _parse_node_labels_json(raw: str) -> Dict[str, Dict[str, str]]:
+def _env_str(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key, "").strip().lower()
+    if raw in ("true", "1", "yes"):
+        return True
+    if raw in ("false", "0", "no"):
+        return False
+    return default
+
+
+def _env_json(key: str, default):
+    raw = os.environ.get(key, "").strip()
     if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid SEED_NODE_LABELS_JSON: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError("SEED_NODE_LABELS_JSON must be a JSON object")
-    normalized: Dict[str, Dict[str, str]] = {}
-    for key, value in data.items():
-        if not isinstance(value, dict):
-            raise ValueError(f"SEED_NODE_LABELS_JSON['{key}'] must be an object of label->value")
-        normalized[str(key)] = {str(k): str(v) for k, v in value.items()}
-    return normalized
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-def _env_choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
-    value = os.environ.get(name, default).strip().lower()
-    if value not in allowed:
-        raise ValueError(f"Invalid {name}: {value}. Allowed values: {', '.join(allowed)}")
-    return value
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
 
 
 def _get_output_dir(default_dirname: str) -> str:
@@ -402,35 +393,64 @@ def run() -> None:
     emu.addLayer(ospf)
     emu.render()
 
-    # Kubernetes compilation
-    registry_prefix = os.environ.get("SEED_REGISTRY", "localhost:5001")
-    namespace = os.environ.get("SEED_NAMESPACE", "seedemu")
-    cni_type = os.environ.get("SEED_CNI_TYPE", "bridge").strip().lower()
-    cni_master_interface = os.environ.get("SEED_CNI_MASTER_INTERFACE", "eth0").strip()
-    image_pull_policy = os.environ.get("SEED_IMAGE_PULL_POLICY", "Always").strip()
-    scheduling_strategy = os.environ.get("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS_HARD).strip().lower()
-    node_labels = _parse_node_labels_json(os.environ.get("SEED_NODE_LABELS_JSON", ""))
-    enable_internet_map = _env_bool("SEED_ENABLE_INTERNET_MAP", default=False)
+    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
+    # Empty/missing env -> topology-author default below.
+
+    # Cluster infrastructure (must be injected from cluster inventory)
+    registry_prefix       = _env_str("SEED_REGISTRY", "localhost:5000")
+    namespace             = _env_str("SEED_NAMESPACE", "seedemu")
+    cni_type              = _env_str("SEED_CNI_TYPE", "bridge").lower()
+    cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
+
+    # Deployment switches (yaml-defined)
+    use_multus            = _env_bool("SEED_USE_MULTUS", True)
+    # Original file had its own SEED_ENABLE_INTERNET_MAP toggle (default False).
+    # Honor SEED_INTERNET_MAP_ENABLED first, fall back to legacy var, default False.
+    if "SEED_INTERNET_MAP_ENABLED" in os.environ and os.environ.get("SEED_INTERNET_MAP_ENABLED", "").strip():
+        internet_map_enabled = _env_bool("SEED_INTERNET_MAP_ENABLED", False)
+    else:
+        internet_map_enabled = _env_bool("SEED_ENABLE_INTERNET_MAP", False)
+    image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
+
+    # defined-by-topology (yaml empty -> topology-author default)
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS_HARD).lower()
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", {})
+    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", None)
+    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
+
+    # K8s Service exposure
+    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
+    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
+    service_type          = _env_str("SEED_SERVICE_TYPE", "NodePort")
 
     output_dir = _get_output_dir("output_real_topology_rr")
 
     k8s = KubernetesCompiler(
         registry_prefix=registry_prefix,
         namespace=namespace,
-        use_multus=True,
-        internetMapEnabled=enable_internet_map,
+        use_multus=use_multus,
+        internetMapEnabled=internet_map_enabled,
         scheduling_strategy=scheduling_strategy,
         node_labels=node_labels,
+        default_resources=default_resources,
         cni_type=cni_type,
+        local_link_cni_type=local_link_cni_type,
         cni_master_interface=cni_master_interface,
-        generate_services=True,
+        generate_services=generate_services,
+        service_type=service_type,
         image_pull_policy=image_pull_policy,
     )
 
-    if enable_internet_map:
+    # Generate internet-map Deployment + NodePort Service if requested (K8s
+    # compiler requires explicit attachInternetMap() call, unlike Docker which
+    # does it automatically when internetMapEnabled=True).
+    # Must be called BEFORE emu.compile() so the manifest/build-command appends
+    # get serialized into k8s.yaml and build_images.sh during _doCompile().
+    if internet_map_enabled:
         k8s.attachInternetMap()
 
     emu.compile(k8s, output_dir, override=True)
+
     rr_plan_path = os.path.join(output_dir, "rr_plan.json")
     with open(rr_plan_path, "w", encoding="utf-8") as handle:
         json.dump(rr_plan_by_as, handle, indent=2, sort_keys=True)
@@ -450,7 +470,7 @@ def run() -> None:
     print(f"Namespace: {namespace}")
     print(f"Registry prefix: {registry_prefix}")
     print(f"CNI type: {cni_type}")
-    print(f"Internet Map enabled: {enable_internet_map}")
+    print(f"Internet Map enabled: {internet_map_enabled}")
     print(f"RR plan: {rr_plan_path}")
     print("iBGP layout: senior default RR/cluster logic")
     print("Routing kernel export: senior default (device+OSPF to kernel)")

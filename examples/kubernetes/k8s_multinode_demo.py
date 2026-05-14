@@ -14,6 +14,7 @@ Usage:
     python3 k8s_multinode_demo.py [macvlan|ipvlan|bridge]
 """
 
+import json
 import os
 import sys
 
@@ -24,7 +25,30 @@ from seedemu.layers.Ebgp import PeerRelationship
 from seedemu.services import WebService
 
 
-def run(cni_type: str = "bridge"):
+def _env_str(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key, "").strip().lower()
+    if raw in ("true", "1", "yes"):
+        return True
+    if raw in ("false", "0", "no"):
+        return False
+    return default
+
+
+def _env_json(key: str, default):
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
+
+def run(cni_type_arg: str = "bridge"):
     # Initialize the emulator and layers
     emu = Emulator()
     base = Base()
@@ -83,23 +107,45 @@ def run(cni_type: str = "bridge"):
     ###############################################################################
     # Kubernetes Compilation with Multi-Node Features
 
-    # Custom node labels for scheduling
-    # This maps AS numbers to specific Kubernetes nodes
-    node_labels = {
+    # === YAML-overridable knobs (vagrant-deploy deploy.yaml -> SEED_* env) ===
+    # Empty/missing env -> topology-author default below.
+
+    # Cluster infrastructure (must be injected from cluster inventory)
+    registry_prefix       = _env_str("SEED_REGISTRY", "127.0.0.1:5001")
+    namespace             = _env_str("SEED_NAMESPACE", "seedemu")
+    # CLI-passed cni_type overrides default; SEED_CNI_TYPE env still wins
+    # over the CLI arg to keep yaml-driven deploys deterministic.
+    cni_type              = _env_str("SEED_CNI_TYPE", cni_type_arg).lower()
+    cni_master_interface  = _env_str("SEED_CNI_MASTER_INTERFACE", "eth0")
+
+    # Deployment switches (yaml-defined)
+    use_multus            = _env_bool("SEED_USE_MULTUS", True)
+    internet_map_enabled  = _env_bool("SEED_INTERNET_MAP_ENABLED", True)
+    image_pull_policy     = _env_str("SEED_IMAGE_PULL_POLICY", "Always")
+
+    # Topology-author defaults: this demo pins AS-150/151 to specific nodes
+    # and applies a default resource budget. Multi-node deployment exemplar.
+    default_node_labels = {
         "150": {"kubernetes.io/hostname": "node1"},
         "151": {"kubernetes.io/hostname": "node2"},
-        "2": {"kubernetes.io/hostname": "node3"},  # Transit AS on node3
+        "2": {"kubernetes.io/hostname": "node3"},
     }
-
-    # Resource limits for all pods
-    default_resources = {
+    default_resources_topology = {
         "requests": {"cpu": "100m", "memory": "128Mi"},
-        "limits": {"cpu": "500m", "memory": "512Mi"}
+        "limits": {"cpu": "500m", "memory": "512Mi"},
     }
 
-    # Create Kubernetes compiler with multi-node features
-    registry_prefix = os.environ.get("SEED_REGISTRY", "127.0.0.1:5001").strip()
-    namespace = os.environ.get("SEED_NAMESPACE", "seedemu").strip()
+    # defined-by-topology (yaml empty -> topology-author default)
+    scheduling_strategy   = _env_str("SEED_SCHEDULING_STRATEGY", SchedulingStrategy.BY_AS).lower()
+    node_labels           = _env_json("SEED_NODE_LABELS_JSON", default_node_labels)
+    default_resources     = _env_json("SEED_DEFAULT_RESOURCES", default_resources_topology)
+    local_link_cni_type   = _env_str("SEED_LOCAL_LINK_CNI_TYPE", "") or None
+
+    # K8s Service exposure (this demo uses ClusterIP by topology-author choice)
+    _gen_yaml             = _env_str("SEED_GENERATE_SERVICES", "auto").lower()
+    generate_services     = _gen_yaml != "false"   # auto/true -> True; false -> False
+    service_type          = _env_str("SEED_SERVICE_TYPE", "ClusterIP")
+
     output_dir = os.environ.get("SEED_OUTPUT_DIR")
     if not output_dir:
         output_dir = os.path.join(os.path.dirname(__file__), f"output_multinode_{cni_type}")
@@ -109,27 +155,26 @@ def run(cni_type: str = "bridge"):
     k8s = KubernetesCompiler(
         registry_prefix=registry_prefix,
         namespace=namespace,
-        use_multus=True,
-        internetMapEnabled=True,
-        
-        # Multi-node scheduling: pods with same AS go to same node
-        scheduling_strategy=SchedulingStrategy.BY_AS,
+        use_multus=use_multus,
+        internetMapEnabled=internet_map_enabled,
+        scheduling_strategy=scheduling_strategy,
         node_labels=node_labels,
-        
-        # Resource management
         default_resources=default_resources,
-        
-        # CNI type for cross-node networking
         cni_type=cni_type,
-        cni_master_interface="eth0",
-        
-        # Generate K8s Services for nodes with exposed ports
-        generate_services=True,
-        service_type="ClusterIP"
+        local_link_cni_type=local_link_cni_type,
+        cni_master_interface=cni_master_interface,
+        generate_services=generate_services,
+        service_type=service_type,
+        image_pull_policy=image_pull_policy,
     )
 
-    # Attach visualization
-    k8s.attachInternetMap()
+    # Generate internet-map Deployment + NodePort Service if requested (K8s
+    # compiler requires explicit attachInternetMap() call, unlike Docker which
+    # does it automatically when internetMapEnabled=True).
+    # Must be called BEFORE emu.compile() so the manifest/build-command appends
+    # get serialized into k8s.yaml and build_images.sh during _doCompile().
+    if internet_map_enabled:
+        k8s.attachInternetMap()
 
     # Compile
     emu.compile(k8s, output_dir, override=True)
@@ -143,7 +188,7 @@ Output Directory: {output_dir}
 Registry Prefix: {registry_prefix}
 Namespace: {namespace}
 CNI Type: {cni_type}
-Scheduling Strategy: CUSTOM (by AS number)
+Scheduling Strategy: {scheduling_strategy}
 
 Node Placement:
   - AS150 (web + router) -> node1
@@ -175,12 +220,12 @@ Next Steps:
 
 
 if __name__ == '__main__':
-    cni_type = "bridge"
+    cni_type_cli = "bridge"
     if len(sys.argv) > 1:
-        cni_type = sys.argv[1].lower()
-        if cni_type not in ["bridge", "macvlan", "ipvlan"]:
-            print(f"Unknown CNI type: {cni_type}")
+        cni_type_cli = sys.argv[1].lower()
+        if cni_type_cli not in ["bridge", "macvlan", "ipvlan"]:
+            print(f"Unknown CNI type: {cni_type_cli}")
             print("Usage: python3 k8s_multinode_demo.py [macvlan|ipvlan|bridge]")
             sys.exit(1)
-    
-    run(cni_type)
+
+    run(cni_type_cli)

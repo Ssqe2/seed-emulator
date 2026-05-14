@@ -20,12 +20,40 @@ namespace: ""                    # SEED_NAMESPACE  (空 = 用 profile 自带的�
 # 修改 seed-emulator/configs/seed_k8s_profiles.yaml。
 topology_file: "../examples/kubernetes/k8s_nano_internet.py"
 
+# --- 编译器开关(yaml 唯一来源)-----------------------------------------
+compiler:
+  use_multus: true                       # SEED_USE_MULTUS
+                                         # SEED 多网卡仿真必需,基本不该关
+  internet_map_enabled: false            # SEED_INTERNET_MAP_ENABLED
+                                         # true 时拓扑会显式调 attachInternetMap()
+                                         # 生成 internet-map Deployment + NodePort Service
+
+  # --- defined by topology file -------------------------------------------
+  # 留空 = 用拓扑代码里的默认值;设值 = override 拓扑设置。
+  scheduling_strategy: ""                # SEED_SCHEDULING_STRATEGY
+                                         # none|auto|by_as|by_as_hard|by_role|custom
+  node_labels: ""                        # SEED_NODE_LABELS_JSON
+                                         # JSON,e.g. {"150":{"kubernetes.io/hostname":"worker1"}}
+  default_resources: ""                  # SEED_DEFAULT_RESOURCES
+                                         # JSON,e.g. {"requests":{"cpu":"50m"},"limits":...}
+
+# --- K8s Service 暴露 -----------------------------------------------------
+services:
+  generate: auto                         # SEED_GENERATE_SERVICES
+                                         # auto  = 拓扑暴露端口才生成 Service(setPort)
+                                         # false = 强制不生成
+  type: NodePort                         # SEED_SERVICE_TYPE
+                                         # NodePort | ClusterIP
+
 # --- CNI 部署决策 ---------------------------------------------------------
-# 部署时 SEED secondary network 用哪种 CNI 实现。必须是
+# cni.type:部署时 SEED secondary network 用哪种 CNI 实现。必须是
 # k3s.yaml.cni.install 列表里的一员(集群构建时装好的工具箱)。
 # 切 CNI 不需要重装集群,改这里 + seed_all.sh sim 即可。
 cni:
-  type: vxlan-overlay            # SEED_CNI_TYPE  bridge | macvlan | ipvlan | vxlan-overlay | host-local
+  type: vxlan-overlay                    # SEED_CNI_TYPE
+                                         # bridge | macvlan | ipvlan | vxlan-overlay | host-local
+  local_link_cni_type: ""                # SEED_LOCAL_LINK_CNI_TYPE  defined by topology
+                                         # 留空走自动 fallback(BY_AS_HARD+macvlan→bridge 等)
 
 # --- Image build & distribution 主选项 ----------------------------------
 image:
